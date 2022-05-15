@@ -7,7 +7,7 @@ from saferl_utils import C_Critic,Critic,Actor
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-class TD3Epf(object):
+class TD3epo(object):
     def __init__(
         self,
         state_dim,

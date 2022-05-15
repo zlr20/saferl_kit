@@ -1,5 +1,5 @@
 import os, argparse, warnings
-
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 warnings.filterwarnings("ignore")
 import numpy as np
 import gym
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     parser.add_argument("--exp_name", type=str)
     parser.add_argument("--env", default="SafeMetaDriveEnv")  # Env name
     parser.add_argument("--seed", default=1000, type=int)  # Sets Gym, PyTorch and Numpy seeds
-    parser.add_argument("--device", default='0')  # cuda device
+    parser.add_argument("--device", default='3')  # cuda device
     parser.add_argument("--base_policy", default="TD3")  # Base Policy name
     parser.add_argument("--use_td3", action="store_true")  # unconstrained RL
     parser.add_argument("--use_epo", action="store_true")  # Wether to use Exact Penalized Function
@@ -82,9 +82,8 @@ if __name__ == "__main__":
     assert [bool(i) for i in [args.use_td3, args.use_epo, args.use_usl, args.use_recovery, args.use_qpsl, args.use_lag,
                               args.use_fac]].count(True) == 1, 'Only one option can be True'
 
-    import os
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.device
+
     if not args.exp_name:
         if args.use_usl:
             file_name = f"{'usl'}_{args.base_policy}_{args.env}_{args.seed}"
@@ -173,7 +172,6 @@ if __name__ == "__main__":
     elif args.use_epo:
         run_policy_type = 'use_epo'
         kwargs.update(kwargs_safe)
-        kwargs.update({'kappa': args.kappa})
         policy = saferl_algos.exactpenalty.TD3epo(**kwargs)
         replay_buffer = saferl_utils.CostReplayBuffer(state_dim, action_dim)
     elif args.use_recovery:
@@ -198,7 +196,7 @@ if __name__ == "__main__":
         replay_buffer = saferl_utils.CostReplayBuffer(state_dim, action_dim)
     elif args.use_td3:
         run_policy_type = 'use_td3'
-        policy = saferl_algos.uncontrained.TD3(**kwargs)
+        policy = saferl_algos.unconstrained.TD3(**kwargs)
         replay_buffer = saferl_utils.SimpleReplayBuffer(state_dim, action_dim)
     else:
         raise NotImplementedError
