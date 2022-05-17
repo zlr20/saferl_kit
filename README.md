@@ -2,11 +2,9 @@
 
 
 
-![image-20220517135619231](C:\Users\HP\AppData\Roaming\Typora\typora-user-images\image-20220517135619231.png)
+![image-20220517135619231](img/image-20220517135619231.png)
 
 ## Description
-
-Safe_RL Kit is a toolkit for developing and evaluating reinforcement learning algorithms, and an accompanying library of state-of-the-art implementations built using that toolkit.
 
 Safe_RL kit is a toolkit for benchmarking efficient and safe RL methods for autonomous driving tasks ，which consists of the following sections：
 
