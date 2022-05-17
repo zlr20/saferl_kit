@@ -130,3 +130,6 @@ dmypy.json
 
 # logger
 logs/
+models/
+all_logs/
+.idea/

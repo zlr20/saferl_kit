@@ -17,9 +17,7 @@ def eval_policy(policy, policy_type, eval_env, seed, eval_episodes=20):
         state, done = eval_env.reset(), False
         t = 0
         while not (done or t >= eval_env._max_episode_steps):
-            if policy_type == 'use_usl':
-                action = policy.select_action(np.array(state), use_usl=True)
-            elif policy_type == 'use_qpsl':
+            if policy_type == 'use_qpsl':
                 action = policy.select_action(np.array(state), use_qpsl=True)
             elif policy_type == 'use_recovery':
                 action, raw_action = policy.select_action(np.array(state), recovery=True)
@@ -52,7 +50,6 @@ if __name__ == "__main__":
     parser.add_argument("--base_policy", default="TD3")  # Base Policy name
     parser.add_argument("--use_td3", action="store_true")  # unconstrained RL
     parser.add_argument("--use_epo", action="store_true")  # Wether to use Exact Penalized Function
-    parser.add_argument("--use_usl", action="store_true")  # Wether to use Unrolling Safety Layer (TODO)
     parser.add_argument("--use_qpsl", action="store_true")  # Wether to use QP Safety Layer (Dalal 2018)
     parser.add_argument("--use_recovery", action="store_true")  # Wether to use Recovery RL     (Thananjeyan 2021)
     parser.add_argument("--use_lag", action="store_true")  # Wether to use Lagrangian Relaxation  (Ray 2019)
@@ -62,7 +59,7 @@ if __name__ == "__main__":
     parser.add_argument("--cost_discount", default=0.99)  # Discount factor for cost-return
     # Hyper-parameters for using epo
     parser.add_argument("--warmup_ratio",
-                        default=1 / 5)  # Start using USL in traing after max_timesteps*warmup_ratio steps
+                        default=1 / 5)  # Start using safe algorithm in traing after max_timesteps*warmup_ratio steps
     # Other hyper-parameters for original TD3
     parser.add_argument("--start_timesteps", default=10000, type=int)  # Time steps initial random policy is used
     parser.add_argument("--eval_freq", default=10000, type=int)  # How often (time steps) we evaluate
@@ -79,18 +76,14 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    assert [bool(i) for i in [args.use_td3, args.use_epo, args.use_usl, args.use_recovery, args.use_qpsl, args.use_lag,
+    assert [bool(i) for i in [args.use_td3, args.use_epo, args.use_recovery, args.use_qpsl, args.use_lag,
                               args.use_fac]].count(True) == 1, 'Only one option can be True'
 
     import os
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.device
     if not args.exp_name:
-        if args.use_usl:
-            file_name = f"{'usl'}_{args.base_policy}_{args.env}_{args.seed}"
-            logger = SafeLogger(exp_name='0_USL', env_name=args.env, seed=args.seed,
-                                fieldnames=['EpRet', 'EpCost', 'CostRate'])
-        elif args.use_epo:
+        if args.use_epo:
             file_name = f"{'epo'}_{args.base_policy}_{args.env}_{args.seed}"
             logger = SafeLogger(exp_name='1_epo', env_name=args.env, seed=args.seed,
                                 fieldnames=['EpRet', 'EpCost', 'CostRate'])
@@ -164,13 +157,7 @@ if __name__ == "__main__":
     }
 
     run_policy_type = ''
-    if args.use_usl:
-        run_policy_type = 'use_usl'
-        # from saferl_algos.unrolling import eval_policy
-        kwargs.update(kwargs_safe)
-        policy = saferl_algos.unrolling.TD3Usl(**kwargs)
-        replay_buffer = saferl_utils.CostReplayBuffer(state_dim, action_dim)
-    elif args.use_epo:
+    if args.use_epo:
         run_policy_type = 'use_epo'
         kwargs.update(kwargs_safe)
         kwargs.update({'kappa': args.kappa})
@@ -218,14 +205,7 @@ if __name__ == "__main__":
 
         episode_timesteps += 1
 
-        if args.use_usl:
-            if t < args.start_timesteps:
-                action = env.action_space.sample()
-            elif t < int(args.max_timesteps * args.warmup_ratio):
-                action = policy.select_action(np.array(state), use_usl=False, exploration=True)
-            else:
-                action = policy.select_action(np.array(state), use_usl=True, exploration=True)
-        elif args.use_recovery:
+        if args.use_recovery:
             if t < args.start_timesteps:
                 raw_action = env.action_space.sample()
                 action = raw_action
