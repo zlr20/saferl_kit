@@ -233,7 +233,7 @@ class MetaDriveEnv(BaseEnv):
             reward = +self.config["success_reward"]
         elif self._is_out_of_road(vehicle):
             reward = -self.config["out_of_road_penalty"]
-        # TODO 是否取消在道路上碰撞的cost_to_reward
+        # TODO  whether to cancel the cost_to_reward on the road 
         elif vehicle.crash_vehicle:
             pass
             # reward = -self.config["crash_vehicle_penalty"]
