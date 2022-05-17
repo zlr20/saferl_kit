@@ -44,7 +44,7 @@ def eval_policy(policy, policy_type, eval_env, seed, eval_episodes=20):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp_name", type=str)
-    parser.add_argument("--env", default="SafeMetaDriveEnv")  # Env name
+    parser.add_argument("--env", default="SafeMetaDriveEnv")  # Env name , the another one is SafetyCarRun-v0
     parser.add_argument("--seed", default=1000, type=int)  # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument("--device", default='3')  # cuda device
     parser.add_argument("--base_policy", default="TD3")  # Base Policy name
