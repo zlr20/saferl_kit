@@ -56,7 +56,7 @@ class SafeMetaDriveEnv(MetaDriveEnv):
                 done = False
             elif done_info[TerminationState.CRASH_OBJECT]:
                 done = False
-            # TODO 冲出道路不会重置环境
+            # TODO don't reset env when out of road
             # elif done_info[TerminationState.OUT_OF_ROAD]:
                 # done = False
         return done, done_info

@@ -13,7 +13,7 @@ class TD3epo(object):
         state_dim,
         action_dim,
         max_action,
-        delta,
+        delta=0.1,
         kappa=5,
         rew_discount=0.99,
         cost_discount=0.99,

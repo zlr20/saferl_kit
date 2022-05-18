@@ -3,10 +3,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from saferl_utils import Critic,Actor
+from saferl_utils import Critic, Actor
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
 
 # Dalal 2018 : c_{t} = c_{t-1} + g^T*a_{t}
@@ -18,30 +17,31 @@ class C_Critic(nn.Module):
         self.l2 = nn.Linear(256, 256)
         self.l3 = nn.Linear(256, action_dim)
 
-    def pred_g(self,state):
+    def pred_g(self, state):
         g = F.relu(self.l1(state))
         g = F.relu(self.l2(g))
         return self.l3(g)
-    
+
     def forward(self, state, action):
         g = self.pred_g(state)
         # (B,1,A)x(B,A,1) -> (B,1,1) -> (B,1)
-        return torch.bmm(g.unsqueeze(1),action.unsqueeze(2)).view(-1,1)
+        return torch.bmm(g.unsqueeze(1), action.unsqueeze(2)).view(-1, 1)
+
 
 class TD3Qpsl(object):
     def __init__(
-        self,
-        state_dim,
-        action_dim,
-        max_action,
-        delta,
-        rew_discount=0.99,
-        cost_discount=0.99,
-        tau=0.005,
-        policy_noise=0.2,
-        noise_clip=0.5,
-        policy_freq=2,
-        expl_noise = 0.1,
+            self,
+            state_dim,
+            action_dim,
+            max_action,
+            delta=0.1,
+            rew_discount=0.99,
+            cost_discount=0.99,
+            tau=0.005,
+            policy_noise=0.2,
+            noise_clip=0.5,
+            policy_freq=2,
+            expl_noise=0.1,
     ):
 
         self.actor = Actor(state_dim, action_dim, max_action).to(device)
@@ -75,32 +75,32 @@ class TD3Qpsl(object):
         state = torch.FloatTensor(state.reshape(1, -1)).to(device)
         action = self.actor(state).cpu().data.numpy().flatten()
         if use_qpsl:
-            action = self.safety_correction(state,action,prev_cost)
+            action = self.safety_correction(state, action, prev_cost)
         if exploration:
             noise = np.random.normal(0, self.max_action * self.expl_noise, size=self.action_dim)
             action = (action + noise).clip(-self.max_action, self.max_action)
         return action
 
-    def safety_correction(self,state,action,cost,verbose=False):
+    def safety_correction(self, state, action, cost, verbose=False):
         if not torch.is_tensor(state):
-            state = torch.tensor(state.reshape(1, -1),requires_grad=False).float().to(device)
+            state = torch.tensor(state.reshape(1, -1), requires_grad=False).float().to(device)
         if not torch.is_tensor(action):
-            action = torch.tensor(action.reshape(1, -1),requires_grad=False).float().to(device)
+            action = torch.tensor(action.reshape(1, -1), requires_grad=False).float().to(device)
 
-        pred = self.C_critic_target(state,action).item() + cost
+        pred = self.C_critic_target(state, action).item() + cost
         if pred <= self.delta:
             return action.cpu().data.numpy().flatten()
         else:
             g = self.C_critic_target.pred_g(state)
             # Equation (5) from Dalal 2018.
-            numer = self.C_critic_target(state,action).item() + cost - self.delta
-            denomin = torch.bmm(g.unsqueeze(1),g.unsqueeze(2)).view(-1) + 1e-8
+            numer = self.C_critic_target(state, action).item() + cost - self.delta
+            denomin = torch.bmm(g.unsqueeze(1), g.unsqueeze(2)).view(-1) + 1e-8
             mult = F.relu(numer / denomin)
             a_old = action
             a_new = a_old - mult * g
-            a_new = torch.clamp(a_new,-self.max_action, self.max_action)
+            a_new = torch.clamp(a_new, -self.max_action, self.max_action)
             return a_new.cpu().data.numpy().flatten()
-            
+
     def train(self, replay_buffer, batch_size=256):
         # Sample replay buffer 
         state, action, next_state, reward, cost, prev_cost, not_done = replay_buffer.sample(batch_size)
@@ -122,11 +122,11 @@ class TD3Qpsl(object):
         with torch.no_grad():
             # Select action according to policy and add clipped noise
             noise = (
-                torch.randn_like(action) * self.policy_noise
+                    torch.randn_like(action) * self.policy_noise
             ).clamp(-self.noise_clip, self.noise_clip)
-            
+
             next_action = (
-                self.actor_target(next_state) + noise
+                    self.actor_target(next_state) + noise
             ).clamp(-self.max_action, self.max_action)
 
             # Compute the target Q value
@@ -139,20 +139,19 @@ class TD3Qpsl(object):
 
         # Compute critic loss
         critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
-        
+
         # Optimize the critic
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
-
 
         # Delayed policy updates
         if self.total_it % self.policy_freq == 0:
 
             # Compute actor loss
             action = self.actor(state)
-            actor_loss = ( -self.critic.Q1(state, action)).mean()
-            
+            actor_loss = (-self.critic.Q1(state, action)).mean()
+
             # Optimize the actor 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -164,22 +163,19 @@ class TD3Qpsl(object):
 
             for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-        
+
             for param, target_param in zip(self.C_critic.parameters(), self.C_critic_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
-        
-        
     def save(self, filename):
         torch.save(self.critic.state_dict(), filename + "_critic")
         torch.save(self.critic_optimizer.state_dict(), filename + "_critic_optimizer")
 
         torch.save(self.C_critic.state_dict(), filename + "_C_critic")
         torch.save(self.C_critic_optimizer.state_dict(), filename + "_C_critic_optimizer")
-        
+
         torch.save(self.actor.state_dict(), filename + "_actor")
         torch.save(self.actor_optimizer.state_dict(), filename + "_actor_optimizer")
-
 
     def load(self, filename):
         self.critic.load_state_dict(torch.load(filename + "_critic"))
@@ -195,18 +191,17 @@ class TD3Qpsl(object):
         self.actor_target = copy.deepcopy(self.actor)
 
 
-
 # Runs policy for X episodes and returns average reward
 # A fixed seed is used for the eval environment
-def eval_policy(policy, eval_env, seed, eval_episodes=5,use_qpsl=False):
+def eval_policy(policy, eval_env, seed, eval_episodes=5, use_qpsl=False):
     avg_reward = 0.
     avg_cost = 0.
     for _ in range(eval_episodes):
         state, cost, done = eval_env.reset(), 0, False
         while not done:
-            action = policy.select_action(np.array(state),prev_cost=cost, use_qpsl=use_qpsl)
+            action = policy.select_action(np.array(state), prev_cost=cost, use_qpsl=use_qpsl)
             state, reward, done, info = eval_env.step(action)
-            cost = 1 if info['cost']!=0 else 0
+            cost = 1 if info['cost'] != 0 else 0
             avg_reward += reward
             avg_cost += cost
 
@@ -217,4 +212,4 @@ def eval_policy(policy, eval_env, seed, eval_episodes=5,use_qpsl=False):
     print(f"Evaluation over {eval_episodes} episodes: {avg_reward:.3f} Cost {avg_cost:.3f}.\
             Use QP Safety Layer : {use_qpsl}")
     print("---------------------------------------")
-    return avg_reward,avg_cost
+    return avg_reward, avg_cost
