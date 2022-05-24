@@ -28,7 +28,7 @@ class SafeMetaDriveEnv(MetaDriveEnv):
     def __init__(self, config):
         super(SafeMetaDriveEnv, self).__init__(config)
         self.episode_cost = 0
-        # TODO 最大环境步数为1000
+        # TODO  set max_episode_steps 1000
         self._max_episode_steps = 1000
 
     def reset(self, *args, **kwargs):
@@ -56,7 +56,7 @@ class SafeMetaDriveEnv(MetaDriveEnv):
                 done = False
             elif done_info[TerminationState.CRASH_OBJECT]:
                 done = False
-            # TODO 冲出道路不会重置环境
+            # TODO don't reset env when out of road
             # elif done_info[TerminationState.OUT_OF_ROAD]:
                 # done = False
         return done, done_info

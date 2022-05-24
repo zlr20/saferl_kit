@@ -162,7 +162,6 @@ class TD3Fac(object):
         torch.save(self.lam_net.state_dict(), filename + "_lam_net")
         torch.save(self.lam_net_optimizer.state_dict(), filename + "_lam_net_optimizer")
 
-
     def load(self, filename):
         self.critic.load_state_dict(torch.load(filename + "_critic"))
         self.critic_optimizer.load_state_dict(torch.load(filename + "_critic_optimizer"))
