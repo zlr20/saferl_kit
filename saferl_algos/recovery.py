@@ -136,7 +136,8 @@ class TD3Recovery(object):
             #--------------------------------------------------------------------------------------------
             
             C_action = self.C_actor(state)
-            C_actor_loss =  F.relu(self.C_critic(state, C_action) - self.delta).mean()
+            # C_actor_loss =  F.relu(self.C_critic(state, C_action) - self.delta).mean()
+            C_actor_loss =  F.softplus(self.C_critic(state, C_action) - self.delta).mean()
             # C_actor_loss =  self.C_critic(state, C_action).mean()
 
             # Optimize the C_actor 

@@ -1,5 +1,5 @@
 import os, argparse, warnings
-os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 warnings.filterwarnings("ignore")
 import numpy as np
 import gym
@@ -60,9 +60,15 @@ if __name__ == "__main__":
     # Hyper-parameters for all safety-aware algorithms
     parser.add_argument("--delta", default=0.1, type=float)  # Qc(s,a) \leq \delta
     parser.add_argument("--cost_discount", default=0.99)  # Discount factor for cost-return
+
+     # Hyper-parameters for using lag
+    parser.add_argument("--lag_init", default=0.,type=float)  # Initalize lagrangian multiplier
+    parser.add_argument("--lag_lr", default=0.001,type=float)  # Step-size of multiplier update
+
     # Hyper-parameters for using epo
     parser.add_argument("--warmup_ratio",
                         default=1 / 5)  # Start using USL in traing after max_timesteps*warmup_ratio steps
+    parser.add_argument("--kappa",default=5,type=int) 
     # Other hyper-parameters for original TD3
     parser.add_argument("--start_timesteps", default=10000, type=int)  # Time steps initial random policy is used
     parser.add_argument("--eval_freq", default=10000, type=int)  # How often (time steps) we evaluate
@@ -172,6 +178,7 @@ if __name__ == "__main__":
     elif args.use_epo:
         run_policy_type = 'use_epo'
         kwargs.update(kwargs_safe)
+        kwargs.update({"kappa":args.kappa})
         policy = saferl_algos.exactpenalty.TD3epo(**kwargs)
         replay_buffer = saferl_utils.CostReplayBuffer(state_dim, action_dim)
     elif args.use_recovery:
@@ -187,6 +194,8 @@ if __name__ == "__main__":
     elif args.use_lag:
         run_policy_type = 'use_lag'
         kwargs.update(kwargs_safe)
+        kwargs.update({"lam_init":args.lag_init,"lam_lr":args.lag_lr})
+
         policy = saferl_algos.lagrangian.TD3Lag(**kwargs)
         replay_buffer = saferl_utils.CostReplayBuffer(state_dim, action_dim)
     elif args.use_fac:
