@@ -10,7 +10,7 @@ def main():
                         help='matplotlib figure length (default: 6)')
     parser.add_argument('--fig_width', type=int, default=4.5, 
                         help='matplotlib figure width (default: 6)')
-    parser.add_argument('--style', default='ggplot', #seaborn-white
+    parser.add_argument('--style', default='seaborn-white', #seaborn-white
                         help='matplotlib figure style (default: seaborn)')
     parser.add_argument('--title', default=None,
                         help='matplotlib figure title (default: None)')

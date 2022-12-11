@@ -162,6 +162,7 @@ class TD3Fac(object):
         torch.save(self.lam_net.state_dict(), filename + "_lam_net")
         torch.save(self.lam_net_optimizer.state_dict(), filename + "_lam_net_optimizer")
 
+
     def load(self, filename):
         self.critic.load_state_dict(torch.load(filename + "_critic"))
         self.critic_optimizer.load_state_dict(torch.load(filename + "_critic_optimizer"))
@@ -182,17 +183,21 @@ class TD3Fac(object):
 
 # Runs policy for X episodes and returns average reward
 # A fixed seed is used for the eval environment
-def eval_policy(policy, eval_env, seed, eval_episodes=5):
+def eval_policy(policy, eval_env, seed, flag, eval_episodes=5):
 
     avg_reward = 0.
     avg_cost = 0.
     for _ in range(eval_episodes):
-        state, done = eval_env.reset(), False
+        if flag == 'constraint_violation':
+            reset_info, done = eval_env.reset(), False
+            state = reset_info[0]
+        else:
+            state, done = eval_env.reset(), False
         while not done:
             action = policy.select_action(np.array(state))
             state, reward, done, info = eval_env.step(action)
             avg_reward += reward
-            if info['cost']!=0:
+            if info[flag]!=0:
                 avg_cost += 1
 
     avg_reward /= eval_episodes
