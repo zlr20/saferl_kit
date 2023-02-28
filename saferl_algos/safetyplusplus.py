@@ -209,11 +209,19 @@ def eval_policy(policy, eval_env, seed, flag, eval_episodes=5,use_usl=False,usl_
         else:
             state, done = eval_env.reset(), False
         while not done:
+            if state.shape[0] == 1:
+                import ipdb; ipdb.set_trace()
             action = policy.select_action(np.array(state),use_usl=use_usl, usl_iter=usl_iter)
             state, reward, done, info = eval_env.step(action)
             avg_reward += reward
-            if info[flag]!=0:
-                avg_cost += 1
+            # import ipdb;ipdb.set_trace()
+
+            if flag == 'safety_gym':
+                # avg_cost += info['cost_hazards']
+                avg_cost += info['cost']
+            else:
+                if info[flag]!=0:
+                    avg_cost += 1
 
     avg_reward /= eval_episodes
     avg_cost /= eval_episodes

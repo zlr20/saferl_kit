@@ -183,8 +183,15 @@ def eval_policy(policy, eval_env, seed,flag, eval_episodes=5):
             action = policy.select_action(np.array(state))
             state, reward, done, info = eval_env.step(action)
             avg_reward += reward
-            if info[flag]!=0:
-                avg_cost += 1
+            
+            if flag == 'safety_gym':
+                # avg_cost += info['cost_hazards']
+                avg_cost += info['cost']
+            else:
+                if info[flag]!=0:
+                    avg_cost += 1
+            # if info[flag]!=0:
+            #     avg_cost += 1
 
     avg_reward /= eval_episodes
     avg_cost /= eval_episodes

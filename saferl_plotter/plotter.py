@@ -64,7 +64,7 @@ def main():
 	parser.add_argument('--xlim', type=int, default=None,
 						help='x-axis limitation (default: None)')
 	
-	parser.add_argument('--log_dir', default='./',
+	parser.add_argument('--log_dir', default='./logs/',
 						help='log dir (default: ./)')
 	parser.add_argument('--filters', default=[''], nargs='+',
 						help='filters of dirname')

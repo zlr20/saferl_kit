@@ -2,6 +2,7 @@ import argparse
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from saferl_plotter import plot_utils as pu
+import os
 
 
 def main():
@@ -61,6 +62,8 @@ def main():
     parser.add_argument('--ylim', type=float, default=None,
                         help='y-axis limitation (default: None)')
     
+    parser.add_argument('--results_dir', default='./results/',
+                        help='plot results dir (default: ./)')
     parser.add_argument('--log_dir', default='./',
                         help='log dir (default: ./)')
     parser.add_argument('--filters', default=[''], nargs='+',
@@ -71,9 +74,16 @@ def main():
                         help='show figure')
     parser.add_argument('--save', action='store_true',
                     help='save figure')
+    # parser.add_argument('--no_save', dest='save', action='store_true', help='opposite of save')
     parser.add_argument('--dpi', type=int, default=400,
                         help='figure dpi (default: 400)')
     args = parser.parse_args()
+
+
+    # create folder if there doesn't exist one
+    existence = os.path.exists(args.results_dir)
+    if not existence:
+        os.makedirs(args.results_dir)
 
     xscale = 1
     if args.time:
@@ -98,7 +108,9 @@ def main():
     if args.save is False:
         args.show = True
 
+    # import ipdb; ipdb.set_trace()
     allresults = pu.load_results(args.log_dir, filename=args.filename, filters=args.filters)
+    
     pu.plot_results(allresults,
         fig_length=args.fig_length,
         fig_width=args.fig_width,
@@ -149,7 +161,8 @@ def main():
         plt.hlines(0, 0, args.xlim, colors='red', linestyles='dashed')
 
     if args.save:
-        plt.savefig(args.log_dir + 'figure', dpi=args.dpi, bbox_inches='tight')
+        # plt.savefig(args.log_dir + 'figure', dpi=args.dpi, bbox_inches='tight')
+        plt.savefig(args.results_dir + args.title, dpi=args.dpi, bbox_inches='tight')
     if args.show:
         plt.show()
     
