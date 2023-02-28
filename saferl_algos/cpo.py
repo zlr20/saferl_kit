@@ -55,6 +55,11 @@ class CPO(object):
         # Sample replay buffer 
         state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
 
+        # todo: extend buff to include history adv/cadv
+        # todo: make sure all tensors are stored
+        # ! current repo: J_C(pi_k) is correct from last episode
+        # !               A_C(pi_k) uses all past k iterations
+
         with torch.no_grad():
             # Select action according to policy and add clipped noise
             noise = (
@@ -85,23 +90,40 @@ class CPO(object):
         # Delayed policy updates
         if self.total_it % self.policy_freq == 0:
 
-            # Compute actor loss
-            action = self.actor(state)
-            actor_loss = - self.critic.Q1(state, action).mean()
+            # todo: get (tensor) pi_loss, surr_cost (A_C), d_kl
+            # todo: get (value) H, g, b
+            # todo: get (value) pi_loss_old, surr_cost_old
+
+            # ! RUIC start
+            # todo: update c, rescale
+            # Need old params, old policy cost gap (epcost - limit), 
+            # and surr_cost rescale factor (equal to average eplen).
+            # old_params = self.sess.run(get_pi_params)
+            # c = self.logger.get_stats('EpCost')[0] - cost_lim # c = J - d
+            # rescale = self.logger.get_stats('EpLen')[0]
+
+            # todo: solve QP
+            # todo: decide optimization cases (feas/infeas, recovery)
+            # todo: get optimal theta-theta_k direction
+            # todo: line search to find theta under surrogate constraints
+
+            # # Compute actor loss
+            # action = self.actor(state)
+            # actor_loss = - self.critic.Q1(state, action).mean()
             
-            # Optimize the actor 
-            self.actor_optimizer.zero_grad()
-            actor_loss.backward()
-            self.actor_optimizer.step()
+            # # Optimize the actor 
+            # self.actor_optimizer.zero_grad()
+            # actor_loss.backward()
+            # self.actor_optimizer.step()
 
-            # Update the frozen target models
-            for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            # # Update the frozen target models
+            # for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
+            #     target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
-            for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            # for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
+            #     target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
         
-        
+            pass
         
         
     def save(self, filename):
