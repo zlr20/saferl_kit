@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from saferl_utils import Critic,Actor
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+EPS = 1e-8
 
 class CPO(object):
     def __init__(
@@ -13,6 +14,7 @@ class CPO(object):
         state_dim,
         action_dim,
         max_action,
+        eval_env,
         rew_discount=0.99,
         tau=0.005,
         policy_noise=0.2,
@@ -40,6 +42,9 @@ class CPO(object):
         self.expl_noise = expl_noise
 
         self.total_it = 0
+        
+        # evaluation environment
+        self.eval_env = eval_env
 
 
     def select_action(self, state,exploration=False):
@@ -49,6 +54,31 @@ class CPO(object):
             noise = np.random.normal(0, self.max_action * self.expl_noise, size=self.action_dim)
             action = (action + noise).clip(-self.max_action, self.max_action)
         return action
+    
+    
+    def hessian_compute(self, H):
+        pass
+    
+    
+    def cost_evaluation(self, eval_episodes=5):
+        episode_cost = 0
+        # reset environment
+        state, done = self.eval_env.reset(), False
+        
+        for _ in range(eval_episodes):
+            state, done = self.eval_env.reset(), False
+            while not done:
+                action = self.select_action(np.array(state))
+                state, reward, done, info = self.eval_env.step(action)
+                avg_reward += reward
+                
+                episode_cost += info['cost']
+        
+        
+        episode_cost /= eval_episodes
+        return episode_cost
+        
+        
 
 
     def train(self, replay_buffer, batch_size=256):
@@ -57,8 +87,16 @@ class CPO(object):
 
         # todo: extend buff to include history adv/cadv
         # todo: make sure all tensors are stored
+        # todo: logger add episode cost after each episode
+        # todo: logger take average of all the stored episode costs so far
+        # ! J_C(pi_k) = mean(cost_episodes)
         # ! current repo: J_C(pi_k) is correct from last episode
         # !               A_C(pi_k) uses all past k iterations
+        
+        # construct the objective function 
+        
+        
+        
 
         with torch.no_grad():
             # Select action according to policy and add clipped noise
@@ -96,11 +134,19 @@ class CPO(object):
 
             # ! RUIC start
             # todo: update c, rescale
-            # Need old params, old policy cost gap (epcost - limit), 
-            # and surr_cost rescale factor (equal to average eplen).
-            # old_params = self.sess.run(get_pi_params)
-            # c = self.logger.get_stats('EpCost')[0] - cost_lim # c = J - d
-            # rescale = self.logger.get_stats('EpLen')[0]
+            EpCost = 'todo'
+            cost_lim = 'todo'
+            EpLen = 'todo'
+            c = EpCost - cost_lim
+            rescale = EpLen
+            
+            # c + rescale * b^T (theta - theta_k) <= 0, equiv c/rescale + b^T(...)
+            c /= (rescale + EPS)
+            
+            # Core calculations for CPO
+            v = tro.cg(Hx, g) # v = H \ g
+            approx_g = Hx(v) # g
+            q = np.dot(v, approx_g) # vT @ g
 
             # todo: solve QP
             # todo: decide optimization cases (feas/infeas, recovery)
@@ -124,7 +170,7 @@ class CPO(object):
             #     target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
         
             pass
-        
+            
         
     def save(self, filename):
         torch.save(self.critic.state_dict(), filename + "_critic")

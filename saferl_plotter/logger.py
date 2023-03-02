@@ -9,6 +9,48 @@ import json, time
 import numpy as np
 from saferl_plotter import log_utils as lu
 
+class RunTimeLogger():
+    """
+    Logger for runtime information.
+    Note that this class is not aiming for saving logging information or experiment-name related information.
+    """
+    def __init__(self):
+        self.logger = {}
+        self.empty = True
+        
+    def update(self, **kwargs):
+        # update the logger status
+        if self.empty:
+            self.empty = False
+            
+        for key, value in kwargs.items():
+            if self.logger.get(key) is None:
+                # update the logger 
+                self.logger.update({key: []})
+                self.logger[key].append(value)
+            else:
+                self.logger[key].append(value)
+        
+        # make sure all fields have the same length
+        log_len = len(self.logger[list(self.logger.keys())[0]])
+        for key in self.logger.keys():
+            try:
+                assert len(self.logger[key]) == log_len
+            except AssertionError:
+                print(lu.colorize(f"Not all keys are upated, please make sure the logging information is consistent for each update", 'yellow', bold=True))
+            
+    def get_stats(self, key):
+        """
+        Return the mean and std of the given key.
+        """
+        v = self.logger[key]
+        vals = np.concatenate(v) if isinstance(v[0], np.ndarray) and len(v[0].shape)>0 else v
+        mean = np.mean(vals)
+        std = np.std(vals)
+        
+        return mean, std
+
+
 class Logger():
     def __init__(self, log_dir="./logs", exp_name=None, env_name=None, seed=0, config=None, filename='evaluator.csv', debug=False):
         self.exp_name = exp_name

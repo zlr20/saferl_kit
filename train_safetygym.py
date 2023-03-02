@@ -4,7 +4,7 @@ import numpy as np
 import gym
 import torch
 import saferl_algos
-from saferl_plotter.logger import SafeLogger
+from saferl_plotter.logger import SafeLogger, RunTimeLogger
 import saferl_utils
 from saferl_plotter import log_utils as lu
 import safety_gym
@@ -219,9 +219,13 @@ if __name__ == "__main__":
         elif args.use_rs:
             file_name = f"{'rs'}_{args.base_policy}_{args.env}_{args.seed}"
             logger = SafeLogger(exp_name='6_RS',env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
+        elif args.use_cpo:
+            file_name = f"{'cpo'}_{args.base_policy}_{args.env}_{args.seed}"
+            logger = SafeLogger(exp_name='7_CPO',env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
+            runtime_logger = RunTimeLogger()
         else:
             file_name = f"{'unconstrained'}_{args.base_policy}_{args.env}_{args.seed}"
-            logger = SafeLogger(exp_name='7_TD3',env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
+            logger = SafeLogger(exp_name='8_TD3',env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
     else:
         file_name = args.exp_name
         logger = SafeLogger(exp_name=args.exp_name,env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
@@ -397,9 +401,18 @@ if __name__ == "__main__":
 
         # Train agent after collecting sufficient data
         if t >= args.start_timesteps:
-            policy.train(replay_buffer, args.batch_size)
+            if args.cpo:
+                # cpo requires logger to pass the episode cost from last step
+                if not runtime_logger.empty:
+                    policy.train(replay_buffer, args.batch_size, runtime_logger)
+            else:  
+                policy.train(replay_buffer, args.batch_size)
 
         if done: 
+            if args.cpo:
+                # Save the episode cost at each end of the episode
+                # ! Here the episode cost is not discounted sum, but direct sum
+                runtime_logger.update({"EpCost": episode_cost})
             if args.use_lag:
                 print(f'Lambda : {policy.lam}')
             # +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True
