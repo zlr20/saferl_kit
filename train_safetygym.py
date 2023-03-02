@@ -222,7 +222,8 @@ if __name__ == "__main__":
         elif args.use_cpo:
             file_name = f"{'cpo'}_{args.base_policy}_{args.env}_{args.seed}"
             logger = SafeLogger(exp_name='7_CPO',env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
-            runtime_logger = RunTimeLogger()
+            runtime_logger = RunTimeLogger() # log the EpCost for each episode
+            runtime_transition_logger = RunTimeLogger() # log the transition for each episode
         else:
             file_name = f"{'unconstrained'}_{args.base_policy}_{args.env}_{args.seed}"
             logger = SafeLogger(exp_name='8_TD3',env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
@@ -301,6 +302,11 @@ if __name__ == "__main__":
         from saferl_algos.unconstrained import eval_policy,TD3
         policy = TD3(**kwargs)
         replay_buffer = saferl_utils.SimpleReplayBuffer(state_dim, action_dim)
+    elif args.use_cpo:
+        from saferl_algos.cpo import eval_policy
+        kwargs.update(kwargs_safe)
+        policy = saferl_algos.cpo.CPO(**kwargs)
+        replay_buffer = saferl_utils.CPOReplayBuffer(state_dim, action_dim)
     else:
         raise NotImplementedError
 
@@ -357,7 +363,6 @@ if __name__ == "__main__":
     
         # Perform action
         next_state, reward, done, info = env.step(action)
-        # import ipdb;ipdb.set_trace()
 
         # cost value
         # cost = 1. if info[args.flag] else 0.
@@ -366,11 +371,6 @@ if __name__ == "__main__":
         # if reward shaping
         if args.use_rs:
             reward -= args.cost_penalty * cost
-        
-        # if cost > 0:
-        #     cost_total += 1
-        #     if args.early_stopping:
-        #         done  = True
         
         if cost > 0:
             cost_total += cost
@@ -390,6 +390,9 @@ if __name__ == "__main__":
             replay_buffer.add(state, raw_action, action, next_state, reward, cost, done_bool)
         elif args.use_qpsl:
             replay_buffer.add(state, action, next_state, reward, cost, prev_cost, done_bool)
+        elif args.use_cpo:
+            # instead of add replay_buffer, CPO maintains the run time logger and save buffer at the end of each episode
+            runtime_transition_logger.update({"state":state, "action":action, "next_state":next_state, "reward":reward, "cost":cost, "done_bool":done_bool})
         else:
             replay_buffer.add(state, action, next_state, reward, cost, done_bool)
             
@@ -402,9 +405,8 @@ if __name__ == "__main__":
         # Train agent after collecting sufficient data
         if t >= args.start_timesteps:
             if args.cpo:
-                # cpo requires logger to pass the episode cost from last step
-                if not runtime_logger.empty:
-                    policy.train(replay_buffer, args.batch_size, runtime_logger)
+                # cpo will update the policy at end of each episode instead of every time step 
+                pass
             else:  
                 policy.train(replay_buffer, args.batch_size)
 
@@ -413,6 +415,30 @@ if __name__ == "__main__":
                 # Save the episode cost at each end of the episode
                 # ! Here the episode cost is not discounted sum, but direct sum
                 runtime_logger.update({"EpCost": episode_cost})
+                # update the replay buffer with the episode transition from logger 
+                # ! Currently cost to go and reward to go has the discount factor of 1
+                # update the cost_to_go from rum time logger 
+                runtime_transition_logger.update_value_to_go("cost")
+                # udpate the reward_to_go from rum time logger 
+                runtime_transition_logger.update_value_to_go("reward")
+                # load the episode information to replay buffer 
+                episode_transition_logger = runtime_transition_logger.get_complete_stats()
+                for i in range(runtime_transition_logger.len):
+                    replay_buffer.add(runtime_transition_logger["state"][i],
+                                      runtime_transition_logger["action"][i],
+                                      runtime_transition_logger["next_state"][i],
+                                      runtime_transition_logger["reward"][i],
+                                      runtime_transition_logger["cost"][i],
+                                      runtime_transition_logger["cost_to_go"][i],
+                                      runtime_transition_logger["reward_to_go"][i],
+                                      runtime_transition_logger["done_bool"][i])
+                # refresh the runtime trnasition logger at end of each episode
+                runtime_transition_logger.reset()
+                # cpo policy update
+                # cpo requires logger to pass the episode cost from last step
+                if not runtime_logger.empty:
+                    # ! CPO use the mean episode cost from all the past histry
+                    policy.train(replay_buffer, args.batch_size, runtime_logger)
             if args.use_lag:
                 print(f'Lambda : {policy.lam}')
             # +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True

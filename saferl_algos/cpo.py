@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from saferl_utils import Critic,Actor
+from saferl_utils import Critic,CPO_Critic, Stochastic_Actor
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
@@ -16,6 +16,7 @@ class CPO(object):
         max_action,
         eval_env,
         rew_discount=0.99,
+        cost_discount=0.99,
         tau=0.005,
         policy_noise=0.2,
         noise_clip=0.5,
@@ -23,17 +24,27 @@ class CPO(object):
         expl_noise = 0.1,
     ):
 
-        self.actor = Actor(state_dim, action_dim, max_action).to(device)
-        self.actor_target = copy.deepcopy(self.actor)
+        # self.actor = Actor(state_dim, action_dim, max_action).to(device)
+        # self.actor_target = copy.deepcopy(self.actor)
+        # self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=3e-4)
+        
+        self.actor = Stochastic_Actor(state_dim, action_dim, max_action).to(device)
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=3e-4)
 
-        self.critic = Critic(state_dim, action_dim).to(device)
-        self.critic_target = copy.deepcopy(self.critic)
-        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=3e-4)
+        # self.critic = Critic(state_dim, action_dim).to(device)
+        # self.critic_target = copy.deepcopy(self.critic)
+        # self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=3e-4)
+        
+        self.cost_critic = CPO_Critic(state_dim, action_dim).to(device)
+        self.cost_critic_optimizer = torch.optim.Adam(self.cost_critic.parameters(), lr=3e-4)
+        
+        self.reward_critic = CPO_Critic(state_dim, action_dim).to(device)
+        self.reward_critic_optimizer = torch.optim.Adam(self.reward_critic.parameters(), lr=3e-4)
 
         self.action_dim = action_dim
         self.max_action = max_action
         self.rew_discount = rew_discount
+        self.cost_discount = cost_discount
         self.tau = tau
         self.policy_noise = policy_noise
         self.noise_clip = noise_clip
@@ -56,81 +67,89 @@ class CPO(object):
         return action
     
     
-    def hessian_compute(self, H):
-        pass
-    
-    
-    def cost_evaluation(self, eval_episodes=5):
-        episode_cost = 0
-        # reset environment
-        state, done = self.eval_env.reset(), False
-        
-        for _ in range(eval_episodes):
-            state, done = self.eval_env.reset(), False
-            while not done:
-                action = self.select_action(np.array(state))
-                state, reward, done, info = self.eval_env.step(action)
-                avg_reward += reward
-                
-                episode_cost += info['cost']
-        
-        
-        episode_cost /= eval_episodes
-        return episode_cost
-        
-        
-
-
-    def train(self, replay_buffer, batch_size=256):
+    def train(self, replay_buffer, batch_size=256, runtime_logger=None):
         # Sample replay buffer 
-        state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
-
-        # todo: extend buff to include history adv/cadv
-        # todo: make sure all tensors are stored
-        # todo: logger add episode cost after each episode
-        # todo: logger take average of all the stored episode costs so far
-        # ! J_C(pi_k) = mean(cost_episodes)
-        # ! current repo: J_C(pi_k) is correct from last episode
-        # !               A_C(pi_k) uses all past k iterations
+        state, action, next_state, reward, cost, cost_to_go, reward_to_go, not_done = replay_buffer.sample(batch_size)
         
-        # construct the objective function 
-        
-        
-        
-
+        # train the cost critic, and reward critics 
         with torch.no_grad():
-            # Select action according to policy and add clipped noise
-            noise = (
-                torch.randn_like(action) * self.policy_noise
-            ).clamp(-self.noise_clip, self.noise_clip)
+            next_action = (self.actor(next_state)).clamp(-self.max_action, self.max_action)
             
-            next_action = (
-                self.actor_target(next_state) + noise
-            ).clamp(-self.max_action, self.max_action)
-
-            # Compute the target Q value
-            target_Q1, target_Q2 = self.critic_target(next_state, next_action)
-            target_Q = torch.min(target_Q1, target_Q2)
-            target_Q = reward + not_done * self.rew_discount * target_Q
-
-        # Get current Q estimates
-        current_Q1, current_Q2 = self.critic(state, action)
-
-        # Compute critic loss
-        critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
+            # train the cost critic 
+            # target_QC
+            target_QC = cost + not_done * self.cost_discount * self.cost_critic.Q(next_state, next_action)
+            current_QC = self.cost_critic.Q(state, action)
+            # train the reward critic
+            # target_RC
+            target_RC = reward + not_done * self.rew_discount * self.reward_critic.Q(next_state, next_action)
+            current_RC = self.reward_critic.Q(state, action)
+            
+        # compute the cost critic loss
+        # todo: define the new replay buffer that also stores the cost-to-go, reward-to-go
+        # todo: implement the value function fitting 
+        critic_QC_loss = F.mse_loss(current_QC, target_QC)
+        # compute the cost value function loss 
+        value_VC_loss = F.mse_loss(self.cost_critic.V(state), cost_to_go)
         
-        # Optimize the critic
-        self.critic_optimizer.zero_grad()
-        critic_loss.backward()
-        self.critic_optimizer.step()
-
-
+        # compute the reawrd critic loss
+        critic_QR_loss = F.mse_loss(current_RC, target_RC)
+        # compute the reward value function loss 
+        value_VR_loss = F.mse_loss(self.reward_critic.V(state), reward_to_go)
+            
+        # Optimize the cost critic 
+        critic_C_loss = critic_QC_loss + value_VC_loss
+        self.cost_critic_optimizer.zero_grad()
+        critic_C_loss.backward()
+        self.cost_critic_optimizer.step()
+        
+        # optimize the reward critic
+        critic_R_loss = critic_QR_loss + value_VR_loss
+        self.reward_critic_optimizer.zero_grad()
+        critic_R_loss.backward()
+        self.reward_critic_optimizer.step()
+                    
         # Delayed policy updates
         if self.total_it % self.policy_freq == 0:
-
+            
+            # todo: extend buff to include history adv/cadv
+            # todo: make sure all tensors are stored
+            # todo: logger add episode cost after each episode
+            # todo: logger take average of all the stored episode costs so far
             # todo: get (tensor) pi_loss, surr_cost (A_C), d_kl
             # todo: get (value) H, g, b
             # todo: get (value) pi_loss_old, surr_cost_old
+            # ! J_C(pi_k) = mean(cost_episodes)
+            # ! current repo: J_C(pi_k) is correct from last episode
+            # !               A_C(pi_k) uses all past k iterations
+            
+            # construct the objective function and surrogate cost function
+            jc, _ = runtime_logger.get_stats("EpCost") # mean EpCost over all episodes
+            
+            # Objective function
+            action = self.actor(state)
+            reward_objective = - (self.reward_critic.Q(state, action) - self.reward_critic.V(state)).mean() # max A(s,a) 
+            
+            # Surrogate cost function 
+            action = self.actor(state)
+            # ! not considering the discound factor for now
+            advc = (self.cost_critic.Q(state, action) - self.cost_critic.V(state)).mean() # cost advantage with respect policy
+            
+            # get the gradient of objective function
+            g = torch.autograd.grad(reward_objective, self.actor.parameters())
+            
+            # get the gradient of surrogate cost function
+            b = torch.autograd.grad(advc, self.actor.parameters())
+            
+            # get the surrogate cost old 
+            actor_old = copy.deepcopy(self.actor)
+            cost_critic_old = copy.deepcopy(self.cost_critic)
+            surr_cost_old = (cost_critic_old.Q(state, actor_old(state)) - cost_critic_old.V(state)).mean() # surrogate cost with respect to current policy
+            
+            # get the Hessian 
+            kl_div = torch.distributions.kl.kl_divergence(self.actor.norm(), actor_old.norm()).sum()
+            Jaccobi = torch.autograd.grad(kl_div, self.actor.parameters())
+            Hessian = torch.autograd.grad(Jaccobi, self.actor.parameters())
+            
 
             # ! RUIC start
             # todo: update c, rescale

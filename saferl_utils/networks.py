@@ -17,7 +17,36 @@ class Actor(nn.Module):
         a = F.relu(self.l1(state))
         a = F.relu(self.l2(a))
         return self.max_action * torch.tanh(self.l3(a))
+    
+    
+class CPO_Critic(nn.Module):
+    def __init__(self, state_dim, action_dim):
+        super(CPO_Critic, self).__init__()
+        
+        # Q function
+        self.ql1 = nn.Linear(state_dim + action_dim, 256)
+        self.ql2 = nn.Linear(256, 256)
+        self.ql3 = nn.Linear(256, 1)
+        
+        # value function
+        self.vl1 = nn.Linear(state_dim, 256)
+        self.vl2 = nn.Linear(256, 256)
+        self.vl3 = nn.Linear(256, 1)
+        
+    def Q(self, state, action):
+        sa = torch.cat([state, action], 1)
 
+        q = F.relu(self.ql1(sa))
+        q = F.relu(self.ql2(q))
+        q = self.ql3(q)
+        return q
+
+    def V(self, state):
+        v = F.relu(self.vl1(state))
+        v = F.relu(self.vl2(v))
+        v = self.vl3(v)
+        return v
+        
 
 class C_Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
@@ -86,3 +115,45 @@ class MultiplerNet(nn.Module):
         a = F.relu(self.l2(a))
         #return F.relu(self.l3(a))
         return F.softplus(self.l3(a)) # lagrangian multipliers can not be negative
+
+
+class Stochastic_Actor(nn.Module):
+    def __init__(self, state_dim, action_dim, max_action):
+        super(Actor, self).__init__()
+
+        self.mul1 = nn.Linear(state_dim, 256)
+        self.mul2 = nn.Linear(256, 256)
+        self.mul3 = nn.Linear(256, action_dim)
+        
+        self.std1 = nn.Linear(state_dim, 256)
+        self.std2 = nn.Linear(256, 256)
+        self.std3 = nn.Linear(256, action_dim)
+        
+        self.max_action = max_action
+        
+    def get_norm(self, state):
+        mu = F.relu(self.mul1(state))
+        mu = F.relu(self.mul2(mu))
+        mu = F.tanh(self.mul3(mu))
+        
+        std = F.relu(self.std1(state))
+        std = F.relu(self.std2(std))
+        std = F.tanh(self.std3(std))
+        
+        norm = torch.distributions.Normal(mu, std)
+        
+        return norm
+
+    
+    def forward(self, state):
+        mu = F.relu(self.mul1(state))
+        mu = F.relu(self.mul2(mu))
+        mu = F.tanh(self.mul3(mu))
+        
+        std = F.relu(self.std1(state))
+        std = F.relu(self.std2(std))
+        std = F.tanh(self.std3(std))
+        
+        norm = torch.distributions.Normal(mu, std)
+        
+        return self.max_action * norm.rsample((state.shape[0],))

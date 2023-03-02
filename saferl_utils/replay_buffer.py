@@ -172,16 +172,22 @@ class CPOReplayBuffer(object):
         self.action = np.zeros((max_size, action_dim))
         self.next_state = np.zeros((max_size, state_dim))
         self.reward = np.zeros((max_size, 1))
+        self.cost = np.zeros((max_size, 1))
+        self.cost_to_go = np.zeros((max_size, 1))
+        self.reward_to_go = np.zeros((max_size, 1))
         self.not_done = np.zeros((max_size, 1))
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-    def add(self, state, action, next_state, reward, done):
+    def add(self, state, action, next_state, reward, cost, cost_to_go, reward_to_go, done):
         self.state[self.ptr] = state
         self.action[self.ptr] = action
         self.next_state[self.ptr] = next_state
         self.reward[self.ptr] = reward
+        self.cost[self.ptr] = cost
+        self.cost_to_go[self.ptr] = cost_to_go
+        self.reward_to_go[self.ptr] = reward_to_go
         self.not_done[self.ptr] = 1. - done
 
         self.ptr = (self.ptr + 1) % self.max_size
@@ -196,6 +202,7 @@ class CPOReplayBuffer(object):
             torch.FloatTensor(self.next_state[ind]).to(self.device),
             torch.FloatTensor(self.reward[ind]).to(self.device),
             torch.FloatTensor(self.cost[ind]).to(self.device),
-            torch.FloatTensor(self.prev_cost[ind]).to(self.device),
+            torch.FloatTensor(self.cost_to_go[ind]).to(self.device),
+            torch.FloatTensor(self.reward_to_go[ind]).to(self.device),
             torch.FloatTensor(self.not_done[ind]).to(self.device),
         )

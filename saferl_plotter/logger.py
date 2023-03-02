@@ -17,6 +17,11 @@ class RunTimeLogger():
     def __init__(self):
         self.logger = {}
         self.empty = True
+    
+    @property
+    def len(self):
+        log_len = len(self.logger[list(self.logger.keys())[0]])
+        return log_len
         
     def update(self, **kwargs):
         # update the logger status
@@ -49,6 +54,50 @@ class RunTimeLogger():
         std = np.std(vals)
         
         return mean, std
+    
+    def get_complete_stats(self):
+        """
+        Return the complete stats for all keys.
+        """
+        return self.logger
+    
+    def get(self, key):
+        """
+        get logger for the given key.
+        """
+        return self.logger[key]
+    
+    def reset(self):
+        """
+        Refresh the logger. Clear all the data. Called after each episode.
+        """
+        self.logger = {}
+        
+        
+    def update_value_to_go(self, key, discount=1):
+        """
+        update the value to go for a given key.
+        """
+        value_trajectory = self.logger[key]
+        value_to_go = [0.] * len(value_trajectory)
+        for i in range(len(value_trajectory)):
+            value_to_go[i] = value_trajectory[i]
+            for j in range(i+1, len(value_trajectory)):
+                value_to_go[i] += discount**(j-i) * value_trajectory[j]
+        new_key = f"{key}_to_go"
+        self.logger.update({new_key: value_to_go})
+        
+        # make sure all fields have the same length
+        log_len = len(self.logger[list(self.logger.keys())[0]])
+        for key in self.logger.keys():
+            try:
+                assert len(self.logger[key]) == log_len
+            except AssertionError:
+                print(lu.colorize(f"Not all keys are upated, please make sure the logging information is consistent for each update", 'yellow', bold=True))
+            
+        
+        
+        
 
 
 class Logger():
