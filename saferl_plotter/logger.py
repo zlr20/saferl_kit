@@ -16,18 +16,24 @@ class RunTimeLogger():
     """
     def __init__(self):
         self.logger = {}
-        self.empty = True
     
     @property
     def len(self):
         log_len = len(self.logger[list(self.logger.keys())[0]])
         return log_len
+    
+    @property
+    def empty(self):
+        log_len = len(self.logger[list(self.logger.keys())[0]])
+        if log_len == 0:
+            return True
+        else:
+            return False
         
     def update(self, **kwargs):
-        # update the logger status
-        if self.empty:
-            self.empty = False
-            
+        """
+        Update the logger.
+        """
         for key, value in kwargs.items():
             if self.logger.get(key) is None:
                 # update the logger 

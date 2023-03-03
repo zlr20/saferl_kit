@@ -119,7 +119,7 @@ class MultiplerNet(nn.Module):
 
 class Stochastic_Actor(nn.Module):
     def __init__(self, state_dim, action_dim, max_action):
-        super(Actor, self).__init__()
+        super(Stochastic_Actor, self).__init__()
 
         self.mul1 = nn.Linear(state_dim, 256)
         self.mul2 = nn.Linear(256, 256)
@@ -134,26 +134,19 @@ class Stochastic_Actor(nn.Module):
     def get_norm(self, state):
         mu = F.relu(self.mul1(state))
         mu = F.relu(self.mul2(mu))
-        mu = F.tanh(self.mul3(mu))
+        mu = F.sigmoid(self.mul3(mu))
         
         std = F.relu(self.std1(state))
         std = F.relu(self.std2(std))
-        std = F.tanh(self.std3(std))
+        std = 0.1 + 0.9 * F.sigmoid(self.std3(std))
         
         norm = torch.distributions.Normal(mu, std)
         
         return norm
 
-    
     def forward(self, state):
-        mu = F.relu(self.mul1(state))
-        mu = F.relu(self.mul2(mu))
-        mu = F.tanh(self.mul3(mu))
         
-        std = F.relu(self.std1(state))
-        std = F.relu(self.std2(std))
-        std = F.tanh(self.std3(std))
+        norm = self.get_norm(state)
         
-        norm = torch.distributions.Normal(mu, std)
-        
-        return self.max_action * norm.rsample((state.shape[0],))
+        # return self.max_action * norm.rsample((state.shape[0],))
+        return self.max_action * norm.rsample()

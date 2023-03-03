@@ -12,6 +12,35 @@ EPS = 1e-8
 Conjugate gradient
 """
 
+def get_net_param_np_vec(net):
+    """
+        Get the parameters of the network as numpy vector
+    """
+    return torch.cat([val.flatten() for val in net.parameters()], axis=0).detach().cpu().numpy()
+
+def auto_grad(objective, net, to_numpy=True):
+    """
+        Get the gradient of the objective with respect to the parameters of the network
+    """
+    grad = torch.autograd.grad(objective, net.parameters(), create_graph=True)
+    if to_numpy:
+        return torch.cat([val.flatten() for val in grad], axis=0).detach().cpu().numpy()
+    else:
+        return torch.cat([val.flatten() for val in grad], axis=0)
+
+def auto_hessian(objective, net):
+    jacob = auto_grad(objective, net, to_numpy=False)
+    import ipdb; ipdb.set_trace()
+    H = torch.stack([auto_grad(val, net, to_numpy=False) for val in jacob], axis=0).detach().cpu().numpy()
+    return H
+
+def assign_net_param_from_flat(param_vec, net):
+    param_sizes = [np.prod(list(val.shape)) for val in net.parameters()]
+    ptr = 0
+    for s, param in zip(param_sizes, net.parameters()):
+        param.data.copy_(torch.from_numpy(param_vec[ptr:ptr+s]).reshape(param.shape))
+        ptr += s
+
 def cg(A, b, cg_iters=10):
     x = np.zeros_like(b)
     r = b.copy() # Note: should be 'b - Ax', but for x=0, Ax=0. Change if doing warm start.
@@ -33,7 +62,6 @@ class CPO(object):
         state_dim,
         action_dim,
         max_action,
-        eval_env,
         rew_discount=0.99,
         cost_discount=0.99,
         tau=0.005,
@@ -41,6 +69,8 @@ class CPO(object):
         noise_clip=0.5,
         policy_freq=2,
         expl_noise = 0.1,
+        cost_lim = 1, # ! tune
+        backtrack_coeff = 0.8
     ):
 
         # self.actor = Actor(state_dim, action_dim, max_action).to(device)
@@ -73,16 +103,16 @@ class CPO(object):
 
         self.total_it = 0
         
-        # evaluation environment
-        self.eval_env = eval_env
+        self.cost_lim = cost_lim
+        self.backtrack_coeff = backtrack_coeff
 
 
     def select_action(self, state,exploration=False):
         state = torch.FloatTensor(state.reshape(1, -1)).to(device)
         action = self.actor(state).cpu().data.numpy().flatten()
-        if exploration:
-            noise = np.random.normal(0, self.max_action * self.expl_noise, size=self.action_dim)
-            action = (action + noise).clip(-self.max_action, self.max_action)
+        # if exploration:
+        #     noise = np.random.normal(0, self.max_action * self.expl_noise, size=self.action_dim)
+        #     action = (action + noise).clip(-self.max_action, self.max_action)
         return action
     
     
@@ -97,11 +127,13 @@ class CPO(object):
             # train the cost critic 
             # target_QC
             target_QC = cost + not_done * self.cost_discount * self.cost_critic.Q(next_state, next_action)
-            current_QC = self.cost_critic.Q(state, action)
             # train the reward critic
             # target_RC
             target_RC = reward + not_done * self.rew_discount * self.reward_critic.Q(next_state, next_action)
-            current_RC = self.reward_critic.Q(state, action)
+        
+        import ipdb; ipdb.set_trace()
+        current_QC = self.cost_critic.Q(state, action)
+        current_RC = self.reward_critic.Q(state, action)
             
         # compute the cost critic loss
         # todo: define the new replay buffer that also stores the cost-to-go, reward-to-go
@@ -128,7 +160,8 @@ class CPO(object):
         self.reward_critic_optimizer.step()
                     
         # Delayed policy updates
-        if self.total_it % self.policy_freq == 0:
+        # if self.total_it % self.policy_freq == 0:
+        if True:
             
             # todo: extend buff to include history adv/cadv
             # todo: make sure all tensors are stored
@@ -142,48 +175,40 @@ class CPO(object):
             # !               A_C(pi_k) uses all past k iterations
             
             # construct the objective function and surrogate cost function
-            jc, _ = runtime_logger.get_stats("EpCost") # mean EpCost over all episodes
+            J_pi_k_C, _ = runtime_logger.get_stats("EpCost") # mean EpCost over all episodes
             
             # Objective function
             action = self.actor(state)
-            reward_objective = - (self.reward_critic.Q(state, action) - self.reward_critic.V(state)).mean() # max A(s,a) 
+            A_pi_k = (self.reward_critic.Q(state, action) - self.reward_critic.V(state)).mean()
+            A_pi_k_old = A_pi_k.detach().cpu().numpy()
+            reward_objective = - A_pi_k  # max A(s,a) 
             
             # Surrogate cost function 
             action = self.actor(state)
             # ! not considering the discound factor for now
-            advc = (self.cost_critic.Q(state, action) - self.cost_critic.V(state)).mean() # cost advantage with respect policy
+            A_pi_k_C = (self.cost_critic.Q(state, action) - self.cost_critic.V(state)).mean() # cost advantage with respect policy
             
             # get the gradient of objective function
-            g = torch.autograd.grad(reward_objective, self.actor.parameters())
+            g = auto_grad(reward_objective, self.actor)
             
             # get the gradient of surrogate cost function
-            b = torch.autograd.grad(advc, self.actor.parameters())
+            b = auto_grad(A_pi_k_C, self.actor)
             
             # get the surrogate cost old 
-            actor_old = copy.deepcopy(self.actor)
-            cost_critic_old = copy.deepcopy(self.cost_critic)
-            surr_cost_old = (cost_critic_old.Q(state, actor_old(state)) - cost_critic_old.V(state)).mean() # surrogate cost with respect to current policy
+            # cost_critic_old = copy.deepcopy(self.cost_critic)
+            A_pi_k_C_old = (self.cost_critic.Q(state, self.actor(state)) - self.cost_critic.V(state)).mean().detach().cpu().numpy() # surrogate cost with respect to current policy
             
             # get the Hessian 
-            kl_div = torch.distributions.kl.kl_divergence(self.actor.norm(), actor_old.norm()).sum()
-            Jaccobi = torch.autograd.grad(kl_div, self.actor.parameters())
-            Hessian = torch.autograd.grad(Jaccobi, self.actor.parameters())
+            actor_old = copy.deepcopy(self.actor)
+            kl_div = torch.distributions.kl.kl_divergence(self.actor.get_norm(state), actor_old.get_norm(state)).sum(axis=1).mean()
+            H = auto_hessian(kl_div, self.actor)
             
-
-            # ! RUIC start
+            EpCost   = J_pi_k_C
+            EpLen    = runtime_logger.get_stats("EpLen")
+            pi_l_old = A_pi_k_old
+            surr_cost_old = A_pi_k_C_old
             
-            H = 'hessian of KL wrt pi param'
-            g = 'gradian of target wrt pi param'
-            b = 'gradient of A_C(pi_k) wrt pi param'
-            
-            # todo
-            EpCost   = 'last ep total cost'
-            cost_lim = 'todo'
-            EpLen    = 'last ep length'
-            pi_l_old = 'last pi loss'
-            surr_cost_old = 'last surr cost'
-            
-            c        = EpCost - cost_lim
+            c        = EpCost - self.cost_lim
             rescale  = EpLen # ? seems to act like std of cost adv
             
             # c + rescale * b^T (theta - theta_k) <= 0, equiv c/rescale + b^T(...)
@@ -255,12 +280,24 @@ class CPO(object):
             
             # line search to find theta under surrogate constraints
             # CPO uses backtracking linesearch to enforce constraints
+            actor_tmp = copy.deepcopy(self.actor)
+            
+            def set_and_eval(step):
+                new_param = get_net_param_np_vec(self.actor) - step * x
+                assign_net_param_from_flat(new_param, actor_tmp)
+                
+                # kl = torch.distributions.kl.kl_divergence(actor_tmp.get_norm(), actor_old.get_norm()).sum()
+                kl = torch.distributions.kl.kl_divergence(actor_tmp.get_norm(state), actor_old.get_norm(state)).sum(axis=1).mean()
+                action = actor_tmp(state)
+                # ! not considering the discound factor for now
+                pi_l        = -(self.reward_critic.Q(state, action) - self.reward_critic.V(state)).mean()
+                surr_cost   =  (self.cost_critic.Q(state, action) - self.cost_critic.V(state)).mean()
+                
+                return kl, pi_l, surr_cost
+            
             for j in range(self.backtrack_iters):
                 
-                # todo
-                kl = 'kl between old and new policy'
-                pi_l_new = 'new JC'
-                surr_cost_new = 'new AC'
+                kl, pi_l_new, surr_cost_new = set_and_eval(self.backtrack_coeff**j)
                 
                 # set_and_eval(step=self.backtrack_coeff**j)
                 print('%d \tkl %.3f \tsurr_cost_new %.3f'%(j, kl, surr_cost_new))
@@ -275,10 +312,7 @@ class CPO(object):
                     print('Line search failed! Keeping old params.')
                     # self.logger.store(BacktrackIters=j)
                     
-                    # todo recover old params
-                    kl = 'kl between old and new policy'
-                    pi_l_new = 'new JC'
-                    surr_cost_new = 'new AC'
+                    kl, pi_l_new, surr_cost_new = set_and_eval(0)
             
             
             # # Compute actor loss
@@ -296,26 +330,24 @@ class CPO(object):
 
             # for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
             #     target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-        
-            pass
             
         
-    def save(self, filename):
-        torch.save(self.critic.state_dict(), filename + "_critic")
-        torch.save(self.critic_optimizer.state_dict(), filename + "_critic_optimizer")
+    # def save(self, filename):
+    #     torch.save(self.critic.state_dict(), filename + "_critic")
+    #     torch.save(self.critic_optimizer.state_dict(), filename + "_critic_optimizer")
  
-        torch.save(self.actor.state_dict(), filename + "_actor")
-        torch.save(self.actor_optimizer.state_dict(), filename + "_actor_optimizer")
+    #     torch.save(self.actor.state_dict(), filename + "_actor")
+    #     torch.save(self.actor_optimizer.state_dict(), filename + "_actor_optimizer")
 
 
-    def load(self, filename):
-        self.critic.load_state_dict(torch.load(filename + "_critic"))
-        self.critic_optimizer.load_state_dict(torch.load(filename + "_critic_optimizer"))
-        self.critic_target = copy.deepcopy(self.critic)
+    # def load(self, filename):
+    #     self.critic.load_state_dict(torch.load(filename + "_critic"))
+    #     self.critic_optimizer.load_state_dict(torch.load(filename + "_critic_optimizer"))
+    #     self.critic_target = copy.deepcopy(self.critic)
 
-        self.actor.load_state_dict(torch.load(filename + "_actor"))
-        self.actor_optimizer.load_state_dict(torch.load(filename + "_actor_optimizer"))
-        self.actor_target = copy.deepcopy(self.actor)
+    #     self.actor.load_state_dict(torch.load(filename + "_actor"))
+    #     self.actor_optimizer.load_state_dict(torch.load(filename + "_actor_optimizer"))
+    #     self.actor_target = copy.deepcopy(self.actor)
 
 
 # Runs policy for X episodes and returns average reward
@@ -324,24 +356,13 @@ def eval_policy(policy, eval_env, seed, flag, eval_episodes=5):
     avg_reward = 0.
     avg_cost = 0.
     for _ in range(eval_episodes):
-        if flag == 'constraint_violation':
-            reset_info, done = eval_env.reset(), False
-            state = reset_info[0]
-        else:
-            state, done = eval_env.reset(), False
+
+        state, done = eval_env.reset(), False
         while not done:
             action = policy.select_action(np.array(state))
             state, reward, done, info = eval_env.step(action)
             avg_reward += reward
-            
-            # if info[flag]!=0:
-            #     avg_cost += 1
-            if flag == 'safety_gym':
-                # avg_cost += info['cost_hazards']
-                avg_cost += info['cost']
-            else:
-                if info[flag]!=0:
-                    avg_cost += 1
+            avg_cost += info['cost']
 
     avg_reward /= eval_episodes
     avg_cost /= eval_episodes
