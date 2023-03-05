@@ -16,13 +16,16 @@ class Net(nn.Module):
         a = F.sigmoid(self.l2(a))
         return a
 
-def get_net_param_np_vec(net):
+def get_net_param_vec(net, to_numpy=True):
     """
         Get the parameters of the network as numpy vector
     """
-    return torch.cat([val.flatten() for val in net.parameters()], axis=0).detach().cpu().numpy()
+    if to_numpy:
+        return torch.cat([val.flatten() for val in net.parameters()], axis=0).detach().cpu().numpy()
+    else:
+        return torch.cat([val.flatten() for val in net.parameters()], axis=0)
 
-def auto_grad_vec(objective, net, to_numpy=True):
+def auto_grad(objective, net, to_numpy=True):
     """
         Get the gradient of the objective with respect to the parameters of the network
     """
@@ -32,10 +35,10 @@ def auto_grad_vec(objective, net, to_numpy=True):
     else:
         return torch.cat([val.flatten() for val in grad], axis=0)
 
-def auto_hessian_np_vec(objective, net):
-    jacob = auto_grad_vec(objective, net, to_numpy=False)
-    H = torch.stack([auto_grad_vec(val, net, to_numpy=False) for val in jacob], axis=0).detach().cpu().numpy()
-    return H
+def auto_hession_x(objective, net, x):
+    jacob = auto_grad(objective, net, to_numpy=False)
+    
+    return auto_grad(torch.dot(jacob, x), net, to_numpy=True)
 
 def assign_net_param_from_flat(param_vec, net):
     param_sizes = [np.prod(list(val.shape)) for val in net.parameters()]
@@ -50,12 +53,12 @@ output = net(input).mean()
 
 # jacob = auto_grad_vec(output, net)
 
-v = get_net_param_np_vec(net)
-v /= v
-print(auto_hessian_np_vec(output, net))
+with torch.autograd.set_detect_anomaly(True):
+    v = get_net_param_vec(net, to_numpy=False)
+    Hx = auto_hession_x(output, net, v)
 
-assign_net_param_from_flat(v, net)
+# assign_net_param_from_flat(v, net)
 
-print(get_net_param_np_vec(net))
+# print(get_net_param_vec(net))
     
 import ipdb; ipdb.set_trace()

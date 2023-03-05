@@ -4,8 +4,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from saferl_utils import Critic,CPO_Critic, Stochastic_Actor
+from saferl_plotter import log_utils as lu
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device('cuda:2')
 EPS = 1e-8
 
 """
@@ -27,10 +29,15 @@ def auto_grad(objective, net, to_numpy=True):
         return torch.cat([val.flatten() for val in grad], axis=0).detach().cpu().numpy()
     else:
         return torch.cat([val.flatten() for val in grad], axis=0)
+    
+    
+def auto_hession_x(objective, net, x):
+    jacob = auto_grad(objective, net, to_numpy=False)
+    
+    return auto_grad(torch.dot(jacob, x), net, to_numpy=True)
 
 def auto_hessian(objective, net):
     jacob = auto_grad(objective, net, to_numpy=False)
-    import ipdb; ipdb.set_trace()
     H = torch.stack([auto_grad(val, net, to_numpy=False) for val in jacob], axis=0).detach().cpu().numpy()
     return H
 
@@ -41,13 +48,13 @@ def assign_net_param_from_flat(param_vec, net):
         param.data.copy_(torch.from_numpy(param_vec[ptr:ptr+s]).reshape(param.shape))
         ptr += s
 
-def cg(A, b, cg_iters=10):
+def cg(Ax, b, cg_iters=10):
     x = np.zeros_like(b)
     r = b.copy() # Note: should be 'b - Ax', but for x=0, Ax=0. Change if doing warm start.
     p = r.copy()
     r_dot_old = np.dot(r,r)
     for _ in range(cg_iters):
-        z = A @ p
+        z = Ax(p)
         alpha = r_dot_old / (np.dot(p, z) + EPS)
         x += alpha * p
         r -= alpha * z
@@ -70,7 +77,9 @@ class CPO(object):
         policy_freq=2,
         expl_noise = 0.1,
         cost_lim = 1, # ! tune
-        backtrack_coeff = 0.8
+        delta = 0.1, # ! cannot be too small, otherwise always infeasible recovery
+        backtrack_coeff = 0.8,
+        backtrack_iters = 10
     ):
 
         # self.actor = Actor(state_dim, action_dim, max_action).to(device)
@@ -105,7 +114,8 @@ class CPO(object):
         
         self.cost_lim = cost_lim
         self.backtrack_coeff = backtrack_coeff
-
+        self.backtrack_iters = backtrack_iters
+        self.delta = delta
 
     def select_action(self, state,exploration=False):
         state = torch.FloatTensor(state.reshape(1, -1)).to(device)
@@ -115,6 +125,49 @@ class CPO(object):
         #     action = (action + noise).clip(-self.max_action, self.max_action)
         return action
     
+    
+    def train_critic(self, replay_buffer, batch_size=256):
+        # Sample replay buffer 
+        state, action, next_state, reward, cost, cost_to_go, reward_to_go, not_done = replay_buffer.sample(batch_size)
+        
+        # train the cost critic, and reward critics 
+        with torch.no_grad():
+            next_action = (self.actor(next_state)).clamp(-self.max_action, self.max_action)
+            
+            # train the cost critic 
+            # target_QC
+            target_QC = cost + not_done * self.cost_discount * self.cost_critic.Q(next_state, next_action)
+            # train the reward critic
+            # target_RC
+            target_RC = reward + not_done * self.rew_discount * self.reward_critic.Q(next_state, next_action)
+        
+        current_QC = self.cost_critic.Q(state, action)
+        current_RC = self.reward_critic.Q(state, action)
+            
+        # compute the cost critic loss
+        # todo: define the new replay buffer that also stores the cost-to-go, reward-to-go
+        # todo: implement the value function fitting 
+        critic_QC_loss = F.mse_loss(current_QC, target_QC)
+        # compute the cost value function loss 
+        value_VC_loss = F.mse_loss(self.cost_critic.V(state), cost_to_go)
+        
+        # compute the reawrd critic loss
+        critic_QR_loss = F.mse_loss(current_RC, target_RC)
+        # compute the reward value function loss 
+        value_VR_loss = F.mse_loss(self.reward_critic.V(state), reward_to_go)
+            
+        # Optimize the cost critic 
+        critic_C_loss = critic_QC_loss + value_VC_loss
+        self.cost_critic_optimizer.zero_grad()
+        critic_C_loss.backward()
+        self.cost_critic_optimizer.step()
+        
+        # optimize the reward critic
+        critic_R_loss = critic_QR_loss + value_VR_loss
+        self.reward_critic_optimizer.zero_grad()
+        critic_R_loss.backward()
+        self.reward_critic_optimizer.step()
+        
     
     def train(self, replay_buffer, batch_size=256, runtime_logger=None):
         # Sample replay buffer 
@@ -131,7 +184,6 @@ class CPO(object):
             # target_RC
             target_RC = reward + not_done * self.rew_discount * self.reward_critic.Q(next_state, next_action)
         
-        import ipdb; ipdb.set_trace()
         current_QC = self.cost_critic.Q(state, action)
         current_RC = self.reward_critic.Q(state, action)
             
@@ -180,7 +232,6 @@ class CPO(object):
             # Objective function
             action = self.actor(state)
             A_pi_k = (self.reward_critic.Q(state, action) - self.reward_critic.V(state)).mean()
-            A_pi_k_old = A_pi_k.detach().cpu().numpy()
             reward_objective = - A_pi_k  # max A(s,a) 
             
             # Surrogate cost function 
@@ -196,27 +247,29 @@ class CPO(object):
             
             # get the surrogate cost old 
             # cost_critic_old = copy.deepcopy(self.cost_critic)
-            A_pi_k_C_old = (self.cost_critic.Q(state, self.actor(state)) - self.cost_critic.V(state)).mean().detach().cpu().numpy() # surrogate cost with respect to current policy
+            A_pi_k_C_old = (self.cost_critic.Q(state, self.actor(state)) - self.cost_critic.V(state)).mean() # surrogate cost with respect to current policy
             
             # get the Hessian 
             actor_old = copy.deepcopy(self.actor)
             kl_div = torch.distributions.kl.kl_divergence(self.actor.get_norm(state), actor_old.get_norm(state)).sum(axis=1).mean()
-            H = auto_hessian(kl_div, self.actor)
+            # define the function handle for the Hessian @ x 
+            Hx = lambda x: auto_hession_x(kl_div, self.actor, torch.FloatTensor(x).to(device))
             
             EpCost   = J_pi_k_C
-            EpLen    = runtime_logger.get_stats("EpLen")
-            pi_l_old = A_pi_k_old
+            EpLen, _ = runtime_logger.get_stats("EpLen")
+            pi_l_old = reward_objective
             surr_cost_old = A_pi_k_C_old
             
             c        = EpCost - self.cost_lim
             rescale  = EpLen # ? seems to act like std of cost adv
             
             # c + rescale * b^T (theta - theta_k) <= 0, equiv c/rescale + b^T(...)
+            
             c /= (rescale + EPS)
             
             # Core calculations for CPO
-            Hinv_g   = cg(H, g)             # Hinv_g = H \ g
-            approx_g = H @ Hinv_g           # g
+            Hinv_g   = cg(Hx, g)             # Hinv_g = H \ g        
+            approx_g = Hx(Hinv_g)           # g
             q        = Hinv_g.T @ approx_g  # g.T / H @ g
 
             # solve QP
@@ -228,12 +281,12 @@ class CPO(object):
                 optim_case = 4
             else:
                 # cost grad is nonzero: CPO update!
-                Hinv_b = cg(H, b)                # H^{-1} b
+                Hinv_b = cg(Hx, b)                # H^{-1} b
                 r = Hinv_b.T @ approx_g          # b^T H^{-1} g
-                s = Hinv_b.T @ H @ Hinv_b        # b^T H^{-1} b
+                s = Hinv_b.T @ Hx(Hinv_b)        # b^T H^{-1} b
                 A = q - r**2 / s            # should be always positive (Cauchy-Shwarz)
-                delta = 'target_kl'
-                B = 2*delta - c**2 / s  # does safety boundary intersect trust region? (positive = yes)
+                # delta = self.delta          # the the constraint for KL divergence 
+                B = 2*self.delta - c**2 / s  # does safety boundary intersect trust region? (positive = yes)
 
                 # c < 0: feasible
 
@@ -249,30 +302,32 @@ class CPO(object):
                     # x = 0 is infeasible and safety boundary intersects
                     # ==> part of trust region is feasible, recovery possible
                     optim_case = 1
-                    print('Alert! Attempting feasible recovery!')
+                    print(lu.colorize(f'Alert! Attempting feasible recovery!', 'yellow', bold=True))
                 else:
                     # x = 0 infeasible, and safety halfspace is outside trust region
                     # ==> whole trust region is infeasible, try to fail gracefully
                     optim_case = 0
-                    print('Alert! Attempting INFEASIBLE recovery!')
+                    print(lu.colorize(f'Alert! Attempting INFEASIBLE recovery!', 'red', bold=True))
+            
+            print(lu.colorize(f'optim_case: {optim_case}', 'magenta', bold=True))
             
             # get optimal theta-theta_k direction
             if optim_case in [3,4]:
-                lam = np.sqrt(q / (2*delta))
+                lam = np.sqrt(q / (2*self.delta))
                 nu = 0
             elif optim_case in [1,2]:
                 LA, LB = [0, r /c], [r/c, np.inf]
                 LA, LB = (LA, LB) if c < 0 else (LB, LA)
                 proj = lambda x, L : max(L[0], min(L[1], x))
                 lam_a = proj(np.sqrt(A/B), LA)
-                lam_b = proj(np.sqrt(q/(2*delta)), LB)
+                lam_b = proj(np.sqrt(q/(2*self.delta)), LB)
                 f_a = lambda lam : -0.5 * (A / (lam+EPS) + B * lam) - r*c/(s+EPS)
-                f_b = lambda lam : -0.5 * (q / (lam+EPS) + 2 * delta * lam)
+                f_b = lambda lam : -0.5 * (q / (lam+EPS) + 2 * self.delta * lam)
                 lam = lam_a if f_a(lam_a) >= f_b(lam_b) else lam_b
                 nu = max(0, lam * c - r) / (s + EPS)
             else:
                 lam = 0
-                nu = np.sqrt(2 * delta / (s+EPS))
+                nu = np.sqrt(2 * self.delta / (s+EPS))
             
             # normal step if optim_case > 0, but for optim_case =0,
             # perform infeasible recovery: step to purely decrease cost
@@ -300,54 +355,21 @@ class CPO(object):
                 kl, pi_l_new, surr_cost_new = set_and_eval(self.backtrack_coeff**j)
                 
                 # set_and_eval(step=self.backtrack_coeff**j)
-                print('%d \tkl %.3f \tsurr_cost_new %.3f'%(j, kl, surr_cost_new))
-                if (kl <= delta and
+                print('%d \tkl %.3f \tsurr_cost_new %.3f \tsurr_cost_old %.3f \tpi_l_new %.3f \tpi_l_old %.3f'%(j, kl, surr_cost_new, surr_cost_old, pi_l_new, pi_l_old))
+                if (kl <= self.delta and
                     (pi_l_new <= pi_l_old if optim_case > 1 else True) and # if current policy is feasible (optim>1), must preserve pi loss
                     surr_cost_new - surr_cost_old <= max(-c,0)):
-                    print('Accepting new params at step %d of line search.'%j)
+                    print(lu.colorize(f'Accepting new params at step %d of line search.'%j, 'green', bold=False))
                     # self.logger.store(BacktrackIters=j)
                     break
 
                 if j==self.backtrack_iters-1:
-                    print('Line search failed! Keeping old params.')
+                    print(lu.colorize(f'Line search failed! Keeping old params.', 'yellow', bold=False))
                     # self.logger.store(BacktrackIters=j)
                     
                     kl, pi_l_new, surr_cost_new = set_and_eval(0)
             
-            
-            # # Compute actor loss
-            # action = self.actor(state)
-            # actor_loss = - self.critic.Q1(state, action).mean()
-            
-            # # Optimize the actor 
-            # self.actor_optimizer.zero_grad()
-            # actor_loss.backward()
-            # self.actor_optimizer.step()
-
-            # # Update the frozen target models
-            # for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
-            #     target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-
-            # for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
-            #     target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            
-        
-    # def save(self, filename):
-    #     torch.save(self.critic.state_dict(), filename + "_critic")
-    #     torch.save(self.critic_optimizer.state_dict(), filename + "_critic_optimizer")
- 
-    #     torch.save(self.actor.state_dict(), filename + "_actor")
-    #     torch.save(self.actor_optimizer.state_dict(), filename + "_actor_optimizer")
-
-
-    # def load(self, filename):
-    #     self.critic.load_state_dict(torch.load(filename + "_critic"))
-    #     self.critic_optimizer.load_state_dict(torch.load(filename + "_critic_optimizer"))
-    #     self.critic_target = copy.deepcopy(self.critic)
-
-    #     self.actor.load_state_dict(torch.load(filename + "_actor"))
-    #     self.actor_optimizer.load_state_dict(torch.load(filename + "_actor_optimizer"))
-    #     self.actor_target = copy.deepcopy(self.actor)
+            print(lu.colorize(f'c (neg->feasible): {c}, EpCost (should <cost_lim): {EpCost}, cost_lim: {self.cost_lim}, B (pos->intersect): {B}, 2delta: {2*self.delta}, c2/s: {c**2 / s}', 'gray', bold=False))
 
 
 # Runs policy for X episodes and returns average reward

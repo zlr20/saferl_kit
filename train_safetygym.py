@@ -170,7 +170,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_cpo",action="store_true")            # Wether to use Constrained Policy Optimization
     parser.add_argument("--seed", default=0, type=int)              # Sets Gym, PyTorch and Numpy seeds
     # Hyper-parameters for all safety-aware algorithms
-    parser.add_argument("--delta",default = 0.1,type=float)         # Qc(s,a) \leq \delta
+    parser.add_argument("--delta",default = 1,type=float)         # Qc(s,a) \leq \delta
     parser.add_argument("--cost_discount", default=0.99)            # Discount factor for cost-return
     # Hyper-parameters for using USL
     parser.add_argument("--warmup_ratio", default=1/3)              # Start using USL in traing after max_timesteps*warmup_ratio steps
@@ -184,6 +184,8 @@ if __name__ == "__main__":
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
     # Hyper-parameters for using CPO
     parser.add_argument("--backtrack_coeff",default = 0.8)          # Backtrack coefficient
+    parser.add_argument("--kl_div_lim",default = 1e-3, type=float)              # the limit of KL divergence
+    parser.add_argument("--backtrack_iters",default = 10)           # Backtrack iterations for CPO line search update    
     # Other hyper-parameters for original TD3
     parser.add_argument("--start_timesteps", default=1000, type=int)# Time steps initial random policy is used
     parser.add_argument("--eval_freq", default=1000, type=int)      # How often (time steps) we evaluate
@@ -231,7 +233,7 @@ if __name__ == "__main__":
             logger = SafeLogger(exp_name='6_RS',env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
         elif args.use_cpo:
             file_name = f"{'cpo'}_{args.base_policy}_{args.env}_{args.seed}"
-            logger = SafeLogger(exp_name='7_CPO',env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
+            logger = SafeLogger(exp_name='7_CPO',env_name=f"{args.env}_kllim{args.kl_div_lim}_costlim{args.delta}",seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
             runtime_logger = RunTimeLogger() # log the EpCost for each episode
             runtime_transition_logger = RunTimeLogger() # log the transition for each episode
         else:
@@ -280,7 +282,10 @@ if __name__ == "__main__":
     kwargs_cpo = {
         "cost_lim": args.delta,
         "cost_discount": args.cost_discount,
-        "backtrack_coeff": args.backtrack_coeff
+        "rew_discount": args.rew_discount,
+        "backtrack_coeff": args.backtrack_coeff,
+        "delta": args.kl_div_lim,
+        "backtrack_iters": args.backtrack_iters
     }
     
     '''
@@ -336,6 +341,7 @@ if __name__ == "__main__":
         state = reset_info[0]
     episode_reward = 0
     episode_cost = 0
+    episode_discount_cost = 0
     episode_timesteps = 0
     episode_num = 0
     cost_total = 0
@@ -417,12 +423,13 @@ if __name__ == "__main__":
         prev_cost = cost
         episode_reward += reward
         episode_cost += cost
+        episode_discount_cost += cost * args.cost_discount**(episode_timesteps-1)
 
         # Train agent after collecting sufficient data
         if t >= args.start_timesteps:
             if args.use_cpo:
-                # cpo will update the policy at end of each episode instead of every time step 
-                pass
+                # cpo will update the critic at every time step, and policy at end of each episode
+                policy.train_critic(replay_buffer, args.batch_size)
             else:  
                 policy.train(replay_buffer, args.batch_size)
 
@@ -430,14 +437,15 @@ if __name__ == "__main__":
             if args.use_cpo:
                 # Save the episode cost at each end of the episode
                 # ! Here the episode cost is not discounted sum, but direct sum
-                runtime_logger.update(**{"EpCost": episode_cost})
-                runtime_logger.update(**{"EpLen": episode_timesteps})
+                # runtime_logger.update(**{"EpCost": episode_cost, "EpLen": episode_timesteps})
+                runtime_logger.update(**{"EpCost": episode_discount_cost, "EpLen": episode_timesteps})
+                
                 # update the replay buffer with the episode transition from logger 
                 # ! Currently cost to go and reward to go has the discount factor of 1
                 # update the cost_to_go from rum time logger 
-                runtime_transition_logger.update_value_to_go("cost")
+                runtime_transition_logger.update_value_to_go("cost", discount=args.cost_discount)
                 # udpate the reward_to_go from rum time logger 
-                runtime_transition_logger.update_value_to_go("reward")
+                runtime_transition_logger.update_value_to_go("reward", discount=args.rew_discount)
                 # load the episode information to replay buffer 
                 episode_transition_logger = runtime_transition_logger.get_complete_stats()
                 for i in range(runtime_transition_logger.len):
@@ -460,7 +468,9 @@ if __name__ == "__main__":
             if args.use_lag:
                 print(f'Lambda : {policy.lam}')
             # +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True
+            print("---------------------------------------")
             print(f"Total T: {t+1} Episode Num: {episode_num+1} Episode T: {episode_timesteps} Reward: {episode_reward:.3f} Cost: {episode_cost:.3f}")
+            print("---------------------------------------")
             # Reset environment
             if args.flag == 'safety_gym':
                 state, done = env.reset(), False
@@ -469,6 +479,7 @@ if __name__ == "__main__":
                 state = reset_info[0]
             episode_reward = 0
             episode_cost = 0
+            episode_discount_cost = 0
             episode_timesteps = 0
             episode_num += 1
             prev_cost = 0

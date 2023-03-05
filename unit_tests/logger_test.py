@@ -95,16 +95,30 @@ class RunTimeLogger():
             except AssertionError:
                 print(lu.colorize(f"Not all keys are upated, please make sure the logging information is consistent for each update", 'yellow', bold=True))
             
+'''
+test the update function
+'''
+# logger = RunTimeLogger()
+# state = np.random.rand(2,3)
+# action = np.random.rand(1,3)
+# next_state = np.random.rand(2,3)
+# info = {"state": state, "action": action, "next_state": next_state}
+# logger.update(**{"state": state, "action": action, "next_state": next_state})
+# logger.update(**{"state": state, "action": action, "next_state": next_state})
+# logger.update(**{"state": state, "action": action, "next_state": next_state})
+# logger.update(**{"state": state, "action": action, "next_state": next_state})
+# logger.update(**{"state": state, "action": action, "next_state": next_state})
+# import ipdb; ipdb.set_trace()
 
+'''
+test the update value to go function
+'''
 logger = RunTimeLogger()
-state = np.random.rand(2,3)
-action = np.random.rand(1,3)
-next_state = np.random.rand(2,3)
-info = {"state": state, "action": action, "next_state": next_state}
-logger.update(**{"state": state, "action": action, "next_state": next_state})
-logger.update(**{"state": state, "action": action, "next_state": next_state})
-logger.update(**{"state": state, "action": action, "next_state": next_state})
-logger.update(**{"state": state, "action": action, "next_state": next_state})
-logger.update(**{"state": state, "action": action, "next_state": next_state})
+reward = np.array([i for i in range(10)])
+cost = np.array([0.1*i for i in range(10)])
+for i in range(10):
+    logger.update(**{"reward": reward[i], "cost": cost[i]}) 
+logger.update_value_to_go("reward", discount=0.9)
+logger.update_value_to_go("cost", discount=0.9)
 import ipdb; ipdb.set_trace()
-print(logger)
+print(logger.get_complete_stats())

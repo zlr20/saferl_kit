@@ -48,6 +48,7 @@ class RunTimeLogger():
             try:
                 assert len(self.logger[key]) == log_len
             except AssertionError:
+                import ipdb; ipdb.set_trace()
                 print(lu.colorize(f"Not all keys are upated, please make sure the logging information is consistent for each update", 'yellow', bold=True))
             
     def get_stats(self, key):
