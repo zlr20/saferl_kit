@@ -7,7 +7,7 @@ from saferl_utils import Critic,CPO_Critic, Stochastic_Actor
 from saferl_plotter import log_utils as lu
 
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = torch.device('cuda:2')
+device = torch.device('cuda:1')
 EPS = 1e-8
 
 """
@@ -126,7 +126,52 @@ class CPO(object):
         return action
     
     
-    def train_critic(self, replay_buffer, batch_size=256):
+    def train_vanilla_pg_critic(self, replay_buffer, batch_size=256, runtime_logger=None):
+        """
+        Train Vanilla Policy Gradient Q function and value function
+        """
+        # Sample replay buffer 
+        state, action, next_state, reward, cost, cost_to_go, reward_to_go, not_done = replay_buffer.sample(batch_size)
+        
+        # train the cost critic, and reward critics 
+        with torch.no_grad():
+            next_action = (self.actor(next_state)).clamp(-self.max_action, self.max_action)
+            
+            # train the reward critic
+            # target_RC
+            target_RC = reward + not_done * self.rew_discount * self.reward_critic.Q(next_state, next_action)
+        
+        current_RC = self.reward_critic.Q(state, action)
+        
+        # compute the reawrd critic loss
+        critic_QR_loss = F.mse_loss(current_RC, target_RC)
+        # compute the reward value function loss 
+        value_VR_loss = F.mse_loss(self.reward_critic.V(state), reward_to_go)
+        
+        # optimize the reward critic
+        critic_R_loss = critic_QR_loss + value_VR_loss
+        self.reward_critic_optimizer.zero_grad()
+        critic_R_loss.backward()
+        self.reward_critic_optimizer.step()
+    
+    
+    def train_vanilla_pg(self, replay_buffer, batch_size=256):
+        """
+        testing training using Vanilla Policy Gradient to only train the policy to maximize the reward
+        """
+        # Sample replay buffer 
+        state, action, next_state, reward, cost, cost_to_go, reward_to_go, not_done = replay_buffer.sample(batch_size)
+        
+        # optimize the actor such that it maximizes the advantage of the reward critic
+        action_tensor = self.actor(state)
+        A_pi_k = (self.reward_critic.Q(state, action_tensor) - self.reward_critic.V(state)).mean()
+        reward_objective = - A_pi_k  # max A(s,a) 
+        # Optimize the actor 
+        self.actor_optimizer.zero_grad()
+        reward_objective.backward()
+        self.actor_optimizer.step()
+    
+    def train_cpo_critic(self, replay_buffer, batch_size=256):
         # Sample replay buffer 
         state, action, next_state, reward, cost, cost_to_go, reward_to_go, not_done = replay_buffer.sample(batch_size)
         
@@ -169,47 +214,47 @@ class CPO(object):
         self.reward_critic_optimizer.step()
         
     
-    def train(self, replay_buffer, batch_size=256, runtime_logger=None):
+    def train_cpo_policy(self, replay_buffer, batch_size=256, runtime_logger=None):
         # Sample replay buffer 
         state, action, next_state, reward, cost, cost_to_go, reward_to_go, not_done = replay_buffer.sample(batch_size)
         
         # train the cost critic, and reward critics 
-        with torch.no_grad():
-            next_action = (self.actor(next_state)).clamp(-self.max_action, self.max_action)
+        # with torch.no_grad():
+        #     next_action = (self.actor(next_state)).clamp(-self.max_action, self.max_action)
             
-            # train the cost critic 
-            # target_QC
-            target_QC = cost + not_done * self.cost_discount * self.cost_critic.Q(next_state, next_action)
-            # train the reward critic
-            # target_RC
-            target_RC = reward + not_done * self.rew_discount * self.reward_critic.Q(next_state, next_action)
+        #     # train the cost critic 
+        #     # target_QC
+        #     target_QC = cost + not_done * self.cost_discount * self.cost_critic.Q(next_state, next_action)
+        #     # train the reward critic
+        #     # target_RC
+        #     target_RC = reward + not_done * self.rew_discount * self.reward_critic.Q(next_state, next_action)
         
-        current_QC = self.cost_critic.Q(state, action)
-        current_RC = self.reward_critic.Q(state, action)
+        # current_QC = self.cost_critic.Q(state, action)
+        # current_RC = self.reward_critic.Q(state, action)
             
-        # compute the cost critic loss
-        # todo: define the new replay buffer that also stores the cost-to-go, reward-to-go
-        # todo: implement the value function fitting 
-        critic_QC_loss = F.mse_loss(current_QC, target_QC)
-        # compute the cost value function loss 
-        value_VC_loss = F.mse_loss(self.cost_critic.V(state), cost_to_go)
+        # # compute the cost critic loss
+        # # todo: define the new replay buffer that also stores the cost-to-go, reward-to-go
+        # # todo: implement the value function fitting 
+        # critic_QC_loss = F.mse_loss(current_QC, target_QC)
+        # # compute the cost value function loss 
+        # value_VC_loss = F.mse_loss(self.cost_critic.V(state), cost_to_go)
         
-        # compute the reawrd critic loss
-        critic_QR_loss = F.mse_loss(current_RC, target_RC)
-        # compute the reward value function loss 
-        value_VR_loss = F.mse_loss(self.reward_critic.V(state), reward_to_go)
+        # # compute the reawrd critic loss
+        # critic_QR_loss = F.mse_loss(current_RC, target_RC)
+        # # compute the reward value function loss 
+        # value_VR_loss = F.mse_loss(self.reward_critic.V(state), reward_to_go)
             
-        # Optimize the cost critic 
-        critic_C_loss = critic_QC_loss + value_VC_loss
-        self.cost_critic_optimizer.zero_grad()
-        critic_C_loss.backward()
-        self.cost_critic_optimizer.step()
+        # # Optimize the cost critic 
+        # critic_C_loss = critic_QC_loss + value_VC_loss
+        # self.cost_critic_optimizer.zero_grad()
+        # critic_C_loss.backward()
+        # self.cost_critic_optimizer.step()
         
-        # optimize the reward critic
-        critic_R_loss = critic_QR_loss + value_VR_loss
-        self.reward_critic_optimizer.zero_grad()
-        critic_R_loss.backward()
-        self.reward_critic_optimizer.step()
+        # # optimize the reward critic
+        # critic_R_loss = critic_QR_loss + value_VR_loss
+        # self.reward_critic_optimizer.zero_grad()
+        # critic_R_loss.backward()
+        # self.reward_critic_optimizer.step()
                     
         # Delayed policy updates
         # if self.total_it % self.policy_freq == 0:

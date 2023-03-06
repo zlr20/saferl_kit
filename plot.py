@@ -31,7 +31,7 @@ def main():
                         help='if not zero, size of the uniform grid in x direction to resample onto. Resampling is performed via symmetric EMA smoothing (see the docstring for symmetric_ema). Default is zero (no resampling). Note that if average_group is True, resampling is necessary; in that case, default value is 512. (default: 512)')
     parser.add_argument('--smooth_step', type=float, default=1.0,
                         help='when resampling (i.e. when resample > 0 or average_group is True), use this EMA decay parameter (in units of the new grid step). See docstrings for decay_steps in symmetric_ema or one_sided_ema functions.')
-    parser.add_argument('--avg_group', action='store_true',default=True,
+    parser.add_argument('--avg_group', action='store_true',default=False,
                         help='average the curves in the same group and plot the mean.')
     parser.add_argument('--shaded_std', action='store_true',default=True,
                         help='shaded region corresponding to standard deviation of the group')

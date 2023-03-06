@@ -24,11 +24,14 @@ class RunTimeLogger():
     
     @property
     def empty(self):
-        log_len = len(self.logger[list(self.logger.keys())[0]])
-        if log_len == 0:
+        if self.logger == {}:
             return True
         else:
-            return False
+            log_len = len(self.logger[list(self.logger.keys())[0]])
+            if log_len == 0:
+                return True
+            else:
+                return False
         
     def update(self, **kwargs):
         """
