@@ -19,6 +19,34 @@ class Actor(nn.Module):
         return self.max_action * torch.tanh(self.l3(a))
     
     
+class Q_V_Critic(nn.Module):
+    def __init__(self, state_dim, action_dim):
+        super(CPO_Critic, self).__init__()
+        
+        # Q function
+        self.ql1 = nn.Linear(state_dim + action_dim, 256)
+        self.ql2 = nn.Linear(256, 256)
+        self.ql3 = nn.Linear(256, 1)
+        
+        # value function
+        self.vl1 = nn.Linear(state_dim, 256)
+        self.vl2 = nn.Linear(256, 256)
+        self.vl3 = nn.Linear(256, 1)
+        
+    def Q(self, state, action):
+        sa = torch.cat([state, action], 1)
+
+        q = F.relu(self.ql1(sa))
+        q = F.relu(self.ql2(q))
+        q = self.ql3(q)
+        return q
+
+    def V(self, state):
+        v = F.relu(self.vl1(state))
+        v = F.relu(self.vl2(v))
+        v = self.vl3(v)
+        return v
+    
 class CPO_Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(CPO_Critic, self).__init__()

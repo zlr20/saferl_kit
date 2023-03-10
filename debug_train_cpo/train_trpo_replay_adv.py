@@ -1,5 +1,7 @@
 import os,sys,argparse,warnings
 warnings.filterwarnings("ignore")
+os.sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '..'))
+
 import numpy as np
 import gym
 import torch
@@ -16,10 +18,6 @@ from safety_gym.envs.engine import Engine
 sys.path.append("saferl_envs")
 from copy import deepcopy
 from functools import partial
-from safe_control_gym.utils.configuration import ConfigFactory
-from safe_control_gym.utils.plotting import plot_from_logs
-from safe_control_gym.utils.registration import make
-from safe_control_gym.utils.utils import mkdirs, set_dir_from_config, set_device_from_config, set_seed_from_config, save_video
 
 ##################################################################################################################################
 
@@ -186,7 +184,8 @@ if __name__ == "__main__":
     # Hyper-parameters for using CPO
     parser.add_argument("--backtrack_coeff",default = 0.8)          # Backtrack coefficient
     parser.add_argument("--kl_div_lim",default = 1e-3, type=float)              # the limit of KL divergence
-    parser.add_argument("--backtrack_iters",default = 10)           # Backtrack iterations for CPO line search update    
+    parser.add_argument("--backtrack_iters",default = 10)           # Backtrack iterations for CPO line search update   
+    parser.add_argument("--delay", default = 5, type=int)                      # delayed update for the random policy    
     # Other hyper-parameters for original TD3
     parser.add_argument("--start_timesteps", default=1000, type=int)# Time steps initial random policy is used
     parser.add_argument("--eval_freq", default=1000, type=int)      # How often (time steps) we evaluate
@@ -210,7 +209,8 @@ if __name__ == "__main__":
                               args.use_lag,
                               args.use_fac,
                               args.use_rs,
-                              args.use_cpo]].count(True) == 1, 'Only one option can be True'
+                              args.use_cpo,
+                              args.use_trpo]].count(True) == 1, 'Only one option can be True'
 
 
     if not args.exp_name:
@@ -234,12 +234,17 @@ if __name__ == "__main__":
             logger = SafeLogger(exp_name='6_RS',env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
         elif args.use_cpo:
             file_name = f"{'cpo'}_{args.base_policy}_{args.env}_{args.seed}"
-            logger = SafeLogger(exp_name='7_CPO',env_name=f"{args.env}_kllim{args.kl_div_lim}_costlim{args.delta}",seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
+            # logger = SafeLogger(exp_name='7_CPO',env_name=f"{args.env}_kllim{args.kl_div_lim}_costlim{args.delta}",seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
+            logger = SafeLogger(exp_name='7_CPO',env_name=f"{args.env}_delay{args.delay}",seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
             runtime_logger = RunTimeLogger() # log the EpCost for each episode
+            runtime_transition_logger = RunTimeLogger() # log the transition for each episode
+        elif args.use_trpo:
+            file_name = f"{'trpo'}_{args.base_policy}_{args.env}_{args.seed}"
+            logger = SafeLogger(exp_name='8_TRPO',env_name=f"{args.env}",seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
             runtime_transition_logger = RunTimeLogger() # log the transition for each episode
         else:
             file_name = f"{'unconstrained'}_{args.base_policy}_{args.env}_{args.seed}"
-            logger = SafeLogger(exp_name='8_TD3',env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
+            logger = SafeLogger(exp_name='9_TD3',env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
     else:
         file_name = args.exp_name
         logger = SafeLogger(exp_name=args.exp_name,env_name=args.env,seed=args.seed,fieldnames=['EpRet','EpCost','CostRate'])
@@ -289,6 +294,17 @@ if __name__ == "__main__":
         "backtrack_iters": args.backtrack_iters
     }
     
+    kwargs_trpo = {
+        "cost_lim": args.delta,
+        "cost_discount": args.cost_discount,
+        "rew_discount": args.rew_discount,
+        "backtrack_coeff": args.backtrack_coeff,
+        "delta": args.kl_div_lim,
+        "backtrack_iters": args.backtrack_iters
+    }
+    
+    
+    
     '''
     set algorithm
     '''
@@ -328,7 +344,14 @@ if __name__ == "__main__":
         from saferl_algos.cpo import eval_policy
         kwargs.update(kwargs_cpo)
         policy = saferl_algos.cpo.CPO(**kwargs)
-        replay_buffer = saferl_utils.CPOReplayBuffer(state_dim, action_dim)
+        # ! new replay buffer that includes TRPO
+        replay_buffer = saferl_utils.TRPOReplayBuffer(state_dim, action_dim)
+    elif args.use_trpo:
+        from saferl_algos.trpo import eval_policy
+        kwargs.update(kwargs_trpo)
+        policy = saferl_algos.trpo.TRPO(**kwargs)
+        # ! new replay buffer that includes advantage and logp for actions
+        replay_buffer = saferl_utils.TRPOReplayBuffer(state_dim, action_dim)
     else:
         raise NotImplementedError
 
@@ -388,7 +411,6 @@ if __name__ == "__main__":
         next_state, reward, done, info = env.step(action)
 
         # cost value
-        # cost = 1. if info[args.flag] else 0.
         cost = info['cost']
 
         # if reward shaping
@@ -414,8 +436,11 @@ if __name__ == "__main__":
         elif args.use_qpsl:
             replay_buffer.add(state, action, next_state, reward, cost, prev_cost, done_bool)
         elif args.use_cpo:
+            # instead of CPO related runtime logger, vanilla PG just care about the reward
             # instead of add replay_buffer, CPO maintains the run time logger and save buffer at the end of each episode
             runtime_transition_logger.update(**{"state":state, "action":action, "next_state":next_state, "reward":reward, "cost":cost, "done_bool":done_bool})
+        elif args.use_trpo:
+            runtime_logger.update(**{"state":state, "action":action, "next_state":next_state, "reward":reward, "cost":cost, "done_bool":done_bool})
         else:
             replay_buffer.add(state, action, next_state, reward, cost, done_bool)
             
@@ -429,8 +454,7 @@ if __name__ == "__main__":
         # Train agent after collecting sufficient data
         if t >= args.start_timesteps:
             if args.use_cpo:
-                # cpo will update the critic at every time step, and policy at end of each episode
-                policy.train_critic(replay_buffer, args.batch_size)
+                pass
             else:  
                 policy.train(replay_buffer, args.batch_size)
 
@@ -460,11 +484,19 @@ if __name__ == "__main__":
                                       episode_transition_logger["done_bool"][i])
                 # refresh the runtime trnasition logger at end of each episode
                 runtime_transition_logger.reset()
-                # cpo policy update
-                # cpo requires logger to pass the episode cost from last step
-                if not runtime_logger.empty:
-                    # ! CPO use the mean episode cost from all the past histry
-                    policy.train(replay_buffer, args.batch_size, runtime_logger)
+                assert runtime_transition_logger.empty == True
+                
+                # update the policy for multiple rounds training 
+                # ! first update the policy 
+                for _ in range(max(1, episode_timesteps // args.delay)):
+                    # train enough actor
+                    policy.train_vanilla_pg(replay_buffer, args.batch_size)
+                # ! next update the value function
+                for _ in range(episode_timesteps):
+                    # train enough critic 
+                    policy.train_vanilla_pg_critic(replay_buffer, args.batch_size)
+                    
+                
                     
             if args.use_lag:
                 print(f'Lambda : {policy.lam}')

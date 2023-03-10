@@ -1,20 +1,18 @@
-
+import os
+os.sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '..'))
 import numpy as np
 import torch
 from torch.optim import Adam
 import gym
 import time
-# import spinup.algos.pytorch.vpg.core as core
-import core
-# from spinup.utils.logx import EpochLogger
-from logx import EpochLogger
-# from spinup.utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
-from mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
-# from spinup.utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs
-from mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs
+import vpg_core as core
+from utils.logx import EpochLogger
+from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
+from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs
 from safety_gym.envs.engine import Engine
 import os.path as osp
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class VPGBuffer:
     """
@@ -86,15 +84,20 @@ class VPGBuffer:
         # the next two lines implement the advantage normalization trick
         adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
         self.adv_buf = (self.adv_buf - adv_mean) / adv_std
-        data = dict(obs=self.obs_buf, act=self.act_buf, ret=self.ret_buf,
-                    adv=self.adv_buf, logp=self.logp_buf)
+        # data = dict(obs=self.obs_buf, act=self.act_buf, ret=self.ret_buf,
+        #             adv=self.adv_buf, logp=self.logp_buf)
+        data = dict(obs=torch.FloatTensor(self.obs_buf).to(device), 
+                    act=torch.FloatTensor(self.act_buf).to(device), 
+                    ret=torch.FloatTensor(self.ret_buf).to(device),
+                    adv=torch.FloatTensor(self.adv_buf).to(device), 
+                    logp=torch.FloatTensor(self.logp_buf).to(device))
         return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in data.items()}
 
 
 
 def vpg(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(),  seed=0, 
         steps_per_epoch=4000, epochs=50, gamma=0.99, pi_lr=3e-4,
-        vf_lr=1e-3, train_v_iters=80, lam=0.97, max_ep_len=1000,
+        vf_lr=1e-3, train_v_iters=80, delay =2, lam=0.97, max_ep_len=1000,
         logger_kwargs=dict(), save_freq=10):
     """
     Vanilla Policy Gradient 
@@ -201,7 +204,7 @@ def vpg(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(),  seed=0,
     act_dim = env.action_space.shape
 
     # Create actor-critic module
-    ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs)
+    ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs).to(device)
 
     # Sync params across processes
     sync_params(ac)
@@ -250,6 +253,7 @@ def vpg(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(),  seed=0,
         v_l_old = compute_loss_v(data).item()
 
         # Train policy with a single step of gradient descent
+        # for i in range(max(1, train_v_iters // delay)):
         pi_optimizer.zero_grad()
         loss_pi, pi_info = compute_loss_pi(data)
         loss_pi.backward()
@@ -452,13 +456,8 @@ def configuration(task, args):
     return config
 
 def create_env(args):
-    # if not args.task:
-    #     env = gym.make(args.safety_default)
-    # else:
-    #     env = Engine(configuration(args.task, args))
     env = Engine(configuration(args.task, args))
     return env
-
 
 def setup_logger_kwargs(exp_name, seed=None, data_dir=None, datestamp=False):
     """
@@ -520,7 +519,7 @@ def setup_logger_kwargs(exp_name, seed=None, data_dir=None, datestamp=False):
         relpath = osp.join(relpath, subfolder)
 
     # data_dir = data_dir or DEFAULT_DATA_DIR
-    data_dir = './'
+    data_dir = './logs/'
     logger_kwargs = dict(output_dir=osp.join(data_dir, relpath), 
                          exp_name=exp_name)
     return logger_kwargs
@@ -536,21 +535,23 @@ if __name__ == '__main__':
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--cpu', type=int, default=1)
-    parser.add_argument('--steps', type=int, default=4000)
-    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--steps', type=int, default=1000)
+    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--delay', type=int, default=2)
+    parser.add_argument('--train_v_iters', type=int, default=1000)
     parser.add_argument('--exp_name', type=str, default='vpg')
+    # parser.add_argument('--train_v_iters', type=int, default=100)
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
-    # import ipdb; ipdb.set_trace()
 
     # from spinup.utils.run_utils import setup_logger_kwargs
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
-    # env_func = lambda : create_env(args)
-    # env = env_func()
-    # env = create_env(args)
 
-    # exit()
+    # vpg(lambda : create_env(args), actor_critic=core.MLPActorCritic,
+    #     ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
+    #     seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
+    #     logger_kwargs=logger_kwargs, train_v_iters=args.train_v_iters, delay=args.delay)
     vpg(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
