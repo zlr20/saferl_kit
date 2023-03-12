@@ -369,10 +369,10 @@ class CPO(object):
                 f_a = lambda lam : -0.5 * (A / (lam+EPS) + B * lam) - r*c/(s+EPS)
                 f_b = lambda lam : -0.5 * (q / (lam+EPS) + 2 * self.delta * lam)
                 lam = lam_a if f_a(lam_a) >= f_b(lam_b) else lam_b
-                nu = max(0, lam * c - r) / (s + EPS)
+                nu = max(0, lam * c - r) / (abs(s+EPS))
             else:
                 lam = 0
-                nu = np.sqrt(2 * self.delta / (s+EPS))
+                nu = np.sqrt(2 * self.delta / (abs(s+EPS)))
             
             # normal step if optim_case > 0, but for optim_case =0,
             # perform infeasible recovery: step to purely decrease cost
@@ -406,6 +406,10 @@ class CPO(object):
                     surr_cost_new - surr_cost_old <= max(-c,0)):
                     print(lu.colorize(f'Accepting new params at step %d of line search.'%j, 'green', bold=False))
                     # self.logger.store(BacktrackIters=j)
+                    
+                    # set the accepted parameters for the actor 
+                    new_param = get_net_param_np_vec(self.actor) - self.backtrack_coeff**j * x
+                    assign_net_param_from_flat(new_param, self.actor)
                     break
 
                 if j==self.backtrack_iters-1:

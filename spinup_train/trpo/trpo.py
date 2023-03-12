@@ -5,8 +5,9 @@ import torch
 from torch.optim import Adam
 import gym
 import time
-import ppo_core as core
-from utils.logx import EpochLogger, setup_logger_kwargs
+import copy
+import trpo_core as core
+from utils.logx import EpochLogger, setup_logger_kwargs, colorize
 from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
 from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs
 from safety_gym.envs.engine import Engine
@@ -14,9 +15,9 @@ from utils.safetygym_config import configuration
 import os.path as osp
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+EPS = 1e-8
 
-
-class PPOBuffer:
+class TRPOBuffer:
     """
     A buffer for storing trajectories experienced by a PPO agent interacting
     with the environment, and using Generalized Advantage Estimation (GAE-Lambda)
@@ -86,8 +87,6 @@ class PPOBuffer:
         # the next two lines implement the advantage normalization trick
         adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
         self.adv_buf = (self.adv_buf - adv_mean) / adv_std
-        # data = dict(obs=self.obs_buf, act=self.act_buf, ret=self.ret_buf,
-        #             adv=self.adv_buf, logp=self.logp_buf)
         data = dict(obs=torch.FloatTensor(self.obs_buf).to(device), 
                     act=torch.FloatTensor(self.act_buf).to(device), 
                     ret=torch.FloatTensor(self.ret_buf).to(device),
@@ -96,11 +95,56 @@ class PPOBuffer:
         return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in data.items()}
 
 
+def get_net_param_np_vec(net):
+    """
+        Get the parameters of the network as numpy vector
+    """
+    return torch.cat([val.flatten() for val in net.parameters()], axis=0).detach().cpu().numpy()
 
-def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
+def assign_net_param_from_flat(param_vec, net):
+    param_sizes = [np.prod(list(val.shape)) for val in net.parameters()]
+    ptr = 0
+    for s, param in zip(param_sizes, net.parameters()):
+        param.data.copy_(torch.from_numpy(param_vec[ptr:ptr+s]).reshape(param.shape))
+        ptr += s
+
+def cg(Ax, b, cg_iters=10):
+    x = np.zeros_like(b)
+    r = b.copy() # Note: should be 'b - Ax', but for x=0, Ax=0. Change if doing warm start.
+    p = r.copy()
+    r_dot_old = np.dot(r,r)
+    for _ in range(cg_iters):
+        z = Ax(p)
+        alpha = r_dot_old / (np.dot(p, z) + EPS)
+        x += alpha * p
+        r -= alpha * z
+        r_dot_new = np.dot(r,r)
+        p = r + (r_dot_new / r_dot_old) * p
+        r_dot_old = r_dot_new
+    return x
+
+def auto_grad(objective, net, to_numpy=True):
+    """
+    Get the gradient of the objective with respect to the parameters of the network
+    """
+    grad = torch.autograd.grad(objective, net.parameters(), create_graph=True)
+    if to_numpy:
+        return torch.cat([val.flatten() for val in grad], axis=0).detach().cpu().numpy()
+    else:
+        return torch.cat([val.flatten() for val in grad], axis=0)
+
+def auto_hession_x(objective, net, x):
+    """
+    Returns 
+    """
+    jacob = auto_grad(objective, net, to_numpy=False)
+    
+    return auto_grad(torch.dot(jacob, x), net, to_numpy=True)
+
+def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
         steps_per_epoch=4000, epochs=50, gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
         vf_lr=1e-3, train_pi_iters=80, train_v_iters=80, lam=0.97, max_ep_len=1000,
-        target_kl=0.01, logger_kwargs=dict(), save_freq=10):
+        target_kl=0.01, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -233,26 +277,39 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Set up experience buffer
     local_steps_per_epoch = int(steps_per_epoch / num_procs())
-    buf = PPOBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
+    buf = TRPOBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
 
-    # Set up function for computing PPO policy loss
-    def compute_loss_pi(data):
+
+    def compute_kl_pi(data, cur_pi):
+        """
+        Return the sample average KL divergence between old and new policies
+        """
         obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
+        
+        # Average KL Divergence  
+        pi, logp = cur_pi(obs, act)
+        average_kl = (logp_old - logp).mean()
+        
+        return average_kl
 
-        # Policy loss
-        pi, logp = ac.pi(obs, act)
-        ratio = torch.exp(logp - logp_old) # note that log a - log b = log (a/b), then exp(log(a/b)) = a / b
-        clip_adv = torch.clamp(ratio, 1-clip_ratio, 1+clip_ratio) * adv
-        loss_pi = -(torch.min(ratio * adv, clip_adv)).mean()
 
+    def compute_loss_pi(data, cur_pi):
+        """
+        The reward objective for TRPO (TRPO policy loss)
+        """
+        obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
+        
+        # Policy loss 
+        pi, logp = cur_pi(obs, act)
+        loss_pi = -(logp * adv).mean()
+        
         # Useful extra info
         approx_kl = (logp_old - logp).mean().item()
         ent = pi.entropy().mean().item()
-        clipped = ratio.gt(1+clip_ratio) | ratio.lt(1-clip_ratio)
-        clipfrac = torch.as_tensor(clipped, dtype=torch.float32).mean().item()
-        pi_info = dict(kl=approx_kl, ent=ent, cf=clipfrac)
-
+        pi_info = dict(kl=approx_kl, ent=ent)
+        
         return loss_pi, pi_info
+        
 
     # Set up function for computing value loss
     def compute_loss_v(data):
@@ -269,23 +326,47 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     def update():
         data = buf.get()
 
-        pi_l_old, pi_info_old = compute_loss_pi(data)
+        pi_l_old, pi_info_old = compute_loss_pi(data, ac.pi)
         pi_l_old = pi_l_old.item()
         v_l_old = compute_loss_v(data).item()
 
-        # Train policy with multiple steps of gradient descent
-        for i in range(train_pi_iters):
-            pi_optimizer.zero_grad()
-            loss_pi, pi_info = compute_loss_pi(data)
-            kl = mpi_avg(pi_info['kl'])
-            if kl > 1.5 * target_kl:
-                logger.log('Early stopping at step %d due to reaching max kl.'%i)
-                break
-            loss_pi.backward()
-            mpi_avg_grads(ac.pi)    # average grads across MPI processes
-            pi_optimizer.step()
 
-        logger.store(StopIter=i)
+        # TRPO policy update core impelmentation 
+        loss_pi, pi_info = compute_loss_pi(data, ac.pi)
+        g = auto_grad(loss_pi, ac.pi) # get the flatten gradient evaluted at pi old 
+        kl_div = compute_kl_pi(data, ac.pi)
+        Hx = lambda x: auto_hession_x(kl_div, ac.pi, torch.FloatTensor(x).to(device))
+        x_hat    = cg(Hx, g)             # Hinv_g = H \ g
+        
+        s = x_hat.T @ Hx(x_hat)
+        x_direction = np.sqrt(2 * target_kl / (np.clip(s,0.,None)+EPS)) * x_hat
+        
+        # copy an actor to conduct line search 
+        actor_tmp = copy.deepcopy(ac.pi)
+        def set_and_eval(step):
+            new_param = get_net_param_np_vec(ac.pi) - step * x_direction
+            assign_net_param_from_flat(new_param, actor_tmp)
+            kl = compute_kl_pi(data, actor_tmp)
+            pi_l, _ = compute_loss_pi(data, actor_tmp)
+            
+            return kl, pi_l
+        
+        # update the policy such that the KL diveragence constraints are satisfied and loss is decreasing
+        for j in range(backtrack_iters):
+            try:
+                kl, pi_l_new = set_and_eval(backtrack_coeff**j)
+            except:
+                import ipdb; ipdb.set_trace()
+            
+            if (kl.item() <= target_kl and pi_l_new.item() <= pi_l_old):
+                print(colorize(f'Accepting new params at step %d of line search.'%j, 'green', bold=False))
+                # update the policy parameter 
+                new_param = get_net_param_np_vec(ac.pi) - backtrack_coeff**j * x_direction
+                assign_net_param_from_flat(new_param, ac.pi)
+                loss_pi, pi_info = compute_loss_pi(data, ac.pi) # re-evaluate the pi_info for the new policy
+                break
+            if j==backtrack_iters-1:
+                print(colorize(f'Line search failed! Keeping old params.', 'yellow', bold=False))
 
         # Value function learning
         for i in range(train_v_iters):
@@ -295,10 +376,10 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             mpi_avg_grads(ac.v)    # average grads across MPI processes
             vf_optimizer.step()
 
-        # Log changes from update
-        kl, ent, cf = pi_info['kl'], pi_info_old['ent'], pi_info['cf']
+        # Log changes from update        
+        kl, ent = pi_info['kl'], pi_info_old['ent']
         logger.store(LossPi=pi_l_old, LossV=v_l_old,
-                     KL=kl, Entropy=ent, ClipFrac=cf,
+                     KL=kl, Entropy=ent,
                      DeltaLossPi=(loss_pi.item() - pi_l_old),
                      DeltaLossV=(loss_v.item() - v_l_old))
 
@@ -309,7 +390,6 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
-            # a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
             a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
 
             next_o, r, d, _ = env.step(a)
@@ -361,10 +441,9 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('DeltaLossV', average_only=True)
         logger.log_tabular('Entropy', average_only=True)
         logger.log_tabular('KL', average_only=True)
-        logger.log_tabular('ClipFrac', average_only=True)
-        logger.log_tabular('StopIter', average_only=True)
         logger.log_tabular('Time', time.time()-start_time)
         logger.dump_tabular()
+        
         
 def create_env(args):
     env = Engine(configuration(args.task, args))
@@ -383,14 +462,14 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=2000)
     parser.add_argument('--epochs', type=int, default=100)
-    parser.add_argument('--exp_name', type=str, default='ppo')
+    parser.add_argument('--exp_name', type=str, default='trpo')
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
     
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
 
-    ppo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
+    trpo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs)
