@@ -284,7 +284,7 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         """
         Return the sample average KL divergence between old and new policies
         """
-        obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['adc'], data['logp']
+        obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
         
         # Average KL Divergence  
         pi, logp = cur_pi(obs, act)
