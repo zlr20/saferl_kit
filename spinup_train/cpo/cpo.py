@@ -384,8 +384,8 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
         # get the Episoe cost
         # ! current didn't implement this runtime logger
-        EpLen = runtime_logger.get_stats("EpLen")
-        EpCost = runtime_logger.get_stats("EpCost")
+        EpLen = logger.get_stats("EpLen")
+        EpCost = logger.get_stats("EpCost")
         
         # cost constraint linearization
         # ! this needs double check, why target_cost / EpLen
@@ -526,7 +526,7 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
-            a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, vc, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
 
             next_o, r, d, info = env.step(a)
             ep_ret += r
@@ -534,7 +534,7 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             ep_len += 1
 
             # save and log
-            buf.store(o, a, r, v, logp)
+            buf.store(o, a, r, v, logp, info['cost'], vc)
             logger.store(VVals=v)
             
             # Update obs (critical!)
