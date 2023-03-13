@@ -25,29 +25,35 @@ class CPOBuffer:
     """
 
     def __init__(self, obs_dim, act_dim, size, gamma=0.99, lam=0.95):
-        self.obs_buf = np.zeros(core.combined_shape(size, obs_dim), dtype=np.float32)
-        self.act_buf = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
-        self.adv_buf = np.zeros(size, dtype=np.float32)
-        self.rew_buf = np.zeros(size, dtype=np.float32)
-        self.ret_buf = np.zeros(size, dtype=np.float32)
-        self.val_buf = np.zeros(size, dtype=np.float32)
-        self.logp_buf = np.zeros(size, dtype=np.float32)
+        self.obs_buf      = np.zeros(core.combined_shape(size, obs_dim), dtype=np.float32)
+        self.act_buf      = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
+        self.adv_buf      = np.zeros(size, dtype=np.float32)
+        self.rew_buf      = np.zeros(size, dtype=np.float32)
+        self.ret_buf      = np.zeros(size, dtype=np.float32)
+        self.val_buf      = np.zeros(size, dtype=np.float32)
+        self.cost_buf     = np.zeros(size, dtype=np.float32)
+        self.cost_ret_buf = np.zeros(size, dtype=np.float32)
+        self.cost_val_buf = np.zeros(size, dtype=np.float32)
+        self.adc_buf      = np.zeros(size, dtype=np.float32)
+        self.logp_buf     = np.zeros(size, dtype=np.float32)
         self.gamma, self.lam = gamma, lam
         self.ptr, self.path_start_idx, self.max_size = 0, 0, size
 
-    def store(self, obs, act, rew, val, logp):
+    def store(self, obs, act, rew, val, logp, cost, cost_val):
         """
         Append one timestep of agent-environment interaction to the buffer.
         """
         assert self.ptr < self.max_size     # buffer has to have room so you can store
-        self.obs_buf[self.ptr] = obs
-        self.act_buf[self.ptr] = act
-        self.rew_buf[self.ptr] = rew
-        self.val_buf[self.ptr] = val
-        self.logp_buf[self.ptr] = logp
+        self.obs_buf[self.ptr]      = obs
+        self.act_buf[self.ptr]      = act
+        self.rew_buf[self.ptr]      = rew
+        self.val_buf[self.ptr]      = val
+        self.logp_buf[self.ptr]     = logp
+        self.cost_buf[self.ptr]     = cost
+        self.cost_val_buf[self.ptr] = cost_val
         self.ptr += 1
 
-    def finish_path(self, last_val=0):
+    def finish_path(self, last_val=0, last_cost_val=0):
         """
         Call this at the end of a trajectory, or when one gets cut off
         by an epoch ending. This looks back in the buffer to where the
@@ -66,13 +72,22 @@ class CPOBuffer:
         path_slice = slice(self.path_start_idx, self.ptr)
         rews = np.append(self.rew_buf[path_slice], last_val)
         vals = np.append(self.val_buf[path_slice], last_val)
+        costs = np.append(self.cost_buf[path_slice], last_cost_val)
+        cost_vals = np.append(self.cost_val_buf[path_slice], last_cost_val)
         
         # the next two lines implement GAE-Lambda advantage calculation
         deltas = rews[:-1] + self.gamma * vals[1:] - vals[:-1]
         self.adv_buf[path_slice] = core.discount_cumsum(deltas, self.gamma * self.lam)
         
+        # cost advantage calculation
+        cost_deltas = costs[:-1] + self.gamma * cost_vals[1:] - cost_vals[:-1]
+        self.adc_buf[path_slice] = core.discount_cumsum(cost_deltas, self.gamma * self.lam)
+        
         # the next line computes rewards-to-go, to be targets for the value function
         self.ret_buf[path_slice] = core.discount_cumsum(rews, self.gamma)[:-1]
+        
+        # costs-to-go, targets for the cost value function
+        self.cost_ret_buf[path_slice] = core.discount_cumsum(costs, self.gamma)[:-1]
         
         self.path_start_idx = self.ptr
 
@@ -87,10 +102,15 @@ class CPOBuffer:
         # the next two lines implement the advantage normalization trick
         adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
         self.adv_buf = (self.adv_buf - adv_mean) / adv_std
+        # center cost advantage, but don't scale
+        adc_mean, adc_std = mpi_statistics_scalar(self.adc_buf)
+        self.adc_buf = (self.adc_buf - adc_mean)
         data = dict(obs=torch.FloatTensor(self.obs_buf).to(device), 
                     act=torch.FloatTensor(self.act_buf).to(device), 
                     ret=torch.FloatTensor(self.ret_buf).to(device),
-                    adv=torch.FloatTensor(self.adv_buf).to(device), 
+                    adv=torch.FloatTensor(self.adv_buf).to(device),
+                    cost_ret=torch.FloatTensor(self.cost_ret_buf).to(device),
+                    adc=torch.FloatTensor(self.adc_buf).to(device),
                     logp=torch.FloatTensor(self.logp_buf).to(device))
         return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in data.items()}
 
@@ -501,14 +521,16 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Prepare for interaction with environment
     start_time = time.time()
     o, ep_ret, ep_len = env.reset(), 0, 0
+    ep_cost_ret = 0
 
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
             a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
 
-            next_o, r, d, _ = env.step(a)
+            next_o, r, d, info = env.step(a)
             ep_ret += r
+            ep_cost_ret += info['cost'] * (gamma ** t)
             ep_len += 1
 
             # save and log
@@ -532,10 +554,10 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     v = 0
                 buf.finish_path(v)
                 if terminal:
-                    # only save EpRet / EpLen if trajectory finished
-                    logger.store(EpRet=ep_ret, EpLen=ep_len)
+                    # only save EpRet / EpLen / EpCost if trajectory finished
+                    logger.store(EpRet=ep_ret, EpLen=ep_len, EpCost=ep_cost_ret)
                 o, ep_ret, ep_len = env.reset(), 0, 0
-
+                ep_cost_ret = 0
 
         # Save model
         if (epoch % save_freq == 0) or (epoch == epochs-1):
@@ -548,6 +570,7 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('Epoch', epoch)
         logger.log_tabular('EpRet', with_min_and_max=True)
         logger.log_tabular('EpLen', average_only=True)
+        logger.log_tabular('EpCost', with_min_and_max=True)
         logger.log_tabular('VVals', with_min_and_max=True)
         logger.log_tabular('TotalEnvInteracts', (epoch+1)*steps_per_epoch)
         logger.log_tabular('LossPi', average_only=True)
