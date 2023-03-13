@@ -143,8 +143,8 @@ def auto_hession_x(objective, net, x):
 
 def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
         steps_per_epoch=4000, epochs=50, gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
-        vf_lr=1e-3, train_pi_iters=80, train_v_iters=80, lam=0.97, max_ep_len=1000,
-        target_kl=0.01, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100):
+        vf_lr=1e-3, vcf_lr=1e-3, train_v_iters=80, train_vc_iters=80, lam=0.97, max_ep_len=1000,
+        target_kl=0.01, target_cost = 1, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -284,15 +284,26 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         """
         Return the sample average KL divergence between old and new policies
         """
-        obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
+        obs, act, logp_old = data['obs'], data['act'], data['logp']
         
         # Average KL Divergence  
         pi, logp = cur_pi(obs, act)
         average_kl = (logp_old - logp).mean()
         
         return average_kl
-
-
+    
+    def compute_cost_pi(data, cur_pi):
+        """
+        Return the suggorate cost for current policy
+        """
+        obs, act, adc, logp_old = data['obs'], data['act'], data['adc'], data['logp']
+        
+        # Surrogate cost function 
+        pi, logp = cur_pi(obs, act)·
+        surr_cost = (logp * adc).mean()
+        
+        return surr_cost
+        
     def compute_loss_pi(data, cur_pi):
         """
         The reward objective for CPO (CPO policy loss)
@@ -310,15 +321,20 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
         return loss_pi, pi_info
         
-
     # Set up function for computing value loss
     def compute_loss_v(data):
         obs, ret = data['obs'], data['ret']
         return ((ac.v(obs) - ret)**2).mean()
+    
+    # Set up function for computing cost loss 
+    def compute_loss_vc(data):
+        obs, cret = data['obs'], data['cret']
+        return ((ac.vc(obs) - cret)**2).mean()
 
     # Set up optimizers for policy and value function
     pi_optimizer = Adam(ac.pi.parameters(), lr=pi_lr)
     vf_optimizer = Adam(ac.v.parameters(), lr=vf_lr)
+    vcf_optimizer = Adam(ac.vc.parameters(), lr=vcf_lr)
 
     # Set up model saving
     logger.setup_pytorch_saver(ac)
@@ -326,20 +342,102 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     def update():
         data = buf.get()
 
+        # log the loss objective and cost function and value function for old policy
         pi_l_old, pi_info_old = compute_loss_pi(data, ac.pi)
         pi_l_old = pi_l_old.item()
+        surr_cost_old = compute_cost_pi(data, ac.pi)
+        surr_cost_old = surr_cost_old.item()
         v_l_old = compute_loss_v(data).item()
 
 
         # CPO policy update core impelmentation 
         loss_pi, pi_info = compute_loss_pi(data, ac.pi)
-        g = auto_grad(loss_pi, ac.pi) # get the flatten gradient evaluted at pi old 
+        surr_cost = compute_cost_pi(data, ac.pi)
+        
+        # get Hessian for KL divergence
         kl_div = compute_kl_pi(data, ac.pi)
         Hx = lambda x: auto_hession_x(kl_div, ac.pi, torch.FloatTensor(x).to(device))
-        x_hat    = cg(Hx, g)             # Hinv_g = H \ g
         
-        s = x_hat.T @ Hx(x_hat)
-        x_direction = np.sqrt(2 * target_kl / (np.clip(s,0.,None)+EPS)) * x_hat
+        # linearize the loss objective and cost function
+        g = auto_grad(loss_pi, ac.pi) # get the loss flatten gradient evaluted at pi old 
+        b = auto_grad(surr_cost, ac.pi) # get the cost flatten gradient evaluted at pi old
+        
+        # get the Episoe cost
+        # ! current didn't implement this runtime logger
+        EpLen = runtime_logger.get_stats("EpLen")
+        EpCost = runtime_logger.get_stats("EpCost")
+        
+        # cost constraint linearization
+        # ! this needs double check, why target_cost / EpLen
+        c = EpCost - target_cost 
+        rescale  = EpLen
+        c /= (rescale + EPS)
+        
+        # core linearization for CPO
+        Hinv_g   = cg(Hx, g)             # Hinv_g = H \ g        
+        approx_g = Hx(Hinv_g)           # g
+        q        = Hinv_g.T @ approx_g  # g.T / H @ g
+        
+        # solve QP
+        # decide optimization cases (feas/infeas, recovery)
+        # Determine optim_case (switch condition for calculation,
+        # based on geometry of constrained optimization problem)
+        if b.T @ b <= 1e-8 and c < 0:
+            Hinv_b, r, s, A, B = 0, 0, 0, 0, 0
+            optim_case = 4
+        else:
+            # cost grad is nonzero: CPO update!
+            Hinv_b = cg(Hx, b)                # H^{-1} b
+            r = Hinv_b.T @ approx_g          # b^T H^{-1} g
+            s = Hinv_b.T @ Hx(Hinv_b)        # b^T H^{-1} b
+            A = q - r**2 / s            # should be always positive (Cauchy-Shwarz)
+            B = 2*target_kl - c**2 / s  # does safety boundary intersect trust region? (positive = yes)
+
+            # c < 0: feasible
+
+            if c < 0 and B < 0:
+                # point in trust region is feasible and safety boundary doesn't intersect
+                # ==> entire trust region is feasible
+                optim_case = 3
+            elif c < 0 and B >= 0:
+                # x = 0 is feasible and safety boundary intersects
+                # ==> most of trust region is feasible
+                optim_case = 2
+            elif c >= 0 and B >= 0:
+                # x = 0 is infeasible and safety boundary intersects
+                # ==> part of trust region is feasible, recovery possible
+                optim_case = 1
+                print(colorize(f'Alert! Attempting feasible recovery!', 'yellow', bold=True))
+            else:
+                # x = 0 infeasible, and safety halfspace is outside trust region
+                # ==> whole trust region is infeasible, try to fail gracefully
+                optim_case = 0
+                print(colorize(f'Alert! Attempting INFEASIBLE recovery!', 'red', bold=True))
+        
+        print(colorize(f'optim_case: {optim_case}', 'magenta', bold=True))
+        
+        
+        # get optimal theta-theta_k direction
+        if optim_case in [3,4]:
+            lam = np.sqrt(q / (2*target_kl))
+            nu = 0
+        elif optim_case in [1,2]:
+            LA, LB = [0, r /c], [r/c, np.inf]
+            LA, LB = (LA, LB) if c < 0 else (LB, LA)
+            proj = lambda x, L : max(L[0], min(L[1], x))
+            lam_a = proj(np.sqrt(A/B), LA)
+            lam_b = proj(np.sqrt(q/(2*target_kl)), LB)
+            f_a = lambda lam : -0.5 * (A / (lam+EPS) + B * lam) - r*c/(s+EPS)
+            f_b = lambda lam : -0.5 * (q / (lam+EPS) + 2 * target_kl * lam)
+            lam = lam_a if f_a(lam_a) >= f_b(lam_b) else lam_b
+            nu = max(0, lam * c - r) / (abs(s+EPS))
+        else:
+            lam = 0
+            nu = np.sqrt(2 * target_kl / (abs(s+EPS)))
+            
+        # normal step if optim_case > 0, but for optim_case =0,
+        # perform infeasible recovery: step to purely decrease cost
+        x_direction = (1./(lam+EPS)) * (Hinv_g + nu * Hinv_b) if optim_case > 0 else nu * Hinv_b
         
         # copy an actor to conduct line search 
         actor_tmp = copy.deepcopy(ac.pi)
@@ -348,22 +446,30 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             assign_net_param_from_flat(new_param, actor_tmp)
             kl = compute_kl_pi(data, actor_tmp)
             pi_l, _ = compute_loss_pi(data, actor_tmp)
+            surr_cost = compute_cost_pi(data, actor_tmp)
             
-            return kl, pi_l
+            return kl, pi_l, surr_cost
         
         # update the policy such that the KL diveragence constraints are satisfied and loss is decreasing
         for j in range(backtrack_iters):
             try:
-                kl, pi_l_new = set_and_eval(backtrack_coeff**j)
+                kl, pi_l_new, surr_cost_new = set_and_eval(backtrack_coeff**j)
             except:
                 import ipdb; ipdb.set_trace()
             
-            if (kl.item() <= target_kl and pi_l_new.item() <= pi_l_old):
+            # if (kl.item() <= target_kl and pi_l_new.item() <= pi_l_old):
+            if (kl.item() <= target_kl and
+                (pi_l_new.item() <= pi_l_old if optim_case > 1 else True) and # if current policy is feasible (optim>1), must preserve pi loss
+                surr_cost_new - surr_cost_old <= max(-c,0)):
+                
                 print(colorize(f'Accepting new params at step %d of line search.'%j, 'green', bold=False))
+                
                 # update the policy parameter 
                 new_param = get_net_param_np_vec(ac.pi) - backtrack_coeff**j * x_direction
                 assign_net_param_from_flat(new_param, ac.pi)
+                
                 loss_pi, pi_info = compute_loss_pi(data, ac.pi) # re-evaluate the pi_info for the new policy
+                surr_cost = compute_cost_pi(data, ac.pi) # re-evaluate the surr_cost for the new policy
                 break
             if j==backtrack_iters-1:
                 print(colorize(f'Line search failed! Keeping old params.', 'yellow', bold=False))
@@ -375,13 +481,22 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             loss_v.backward()
             mpi_avg_grads(ac.v)    # average grads across MPI processes
             vf_optimizer.step()
+            
+        # Cost value function learning
+        for i in range(train_vc_iters):
+            vcf_optimizer.zero_grad()
+            loss_vc = compute_loss_vc(data)
+            loss_vc.backward()
+            mpi_avg_grads(ac.vc)    # average grads across MPI processes
+            vcf_optimizer.step()
 
         # Log changes from update        
         kl, ent = pi_info['kl'], pi_info_old['ent']
-        logger.store(LossPi=pi_l_old, LossV=v_l_old,
+        logger.store(LossPi=pi_l_old, LossV=v_l_old, LossCost=surr_cost_old,
                      KL=kl, Entropy=ent,
                      DeltaLossPi=(loss_pi.item() - pi_l_old),
-                     DeltaLossV=(loss_v.item() - v_l_old))
+                     DeltaLossV=(loss_v.item() - v_l_old),
+                     DeltaLossCost=(surr_cost.item() - surr_cost_old))
 
     # Prepare for interaction with environment
     start_time = time.time()
@@ -455,6 +570,7 @@ if __name__ == '__main__':
     parser.add_argument('--env', type=str, default='SafetyGym')
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
+    parser.add_argument('--target_cost', type=float, default=1) # the cost limit for the environment
     parser.add_argument('--hid', type=int, default=64)
     parser.add_argument('--l', type=int, default=2)
     parser.add_argument('--gamma', type=float, default=0.99)
@@ -472,4 +588,4 @@ if __name__ == '__main__':
     cpo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
-        logger_kwargs=logger_kwargs)
+        logger_kwargs=logger_kwargs, target_cost=args.target_cost)
