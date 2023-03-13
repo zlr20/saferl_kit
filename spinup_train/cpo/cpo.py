@@ -299,7 +299,7 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         obs, act, adc, logp_old = data['obs'], data['act'], data['adc'], data['logp']
         
         # Surrogate cost function 
-        pi, logp = cur_pi(obs, act)·
+        pi, logp = cur_pi(obs, act)
         surr_cost = (logp * adc).mean()
         
         return surr_cost
