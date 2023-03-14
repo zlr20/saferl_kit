@@ -272,7 +272,7 @@ class CPO(object):
             # !               A_C(pi_k) uses all past k iterations
             
             # construct the objective function and surrogate cost function
-            J_pi_k_C, _ = runtime_logger.get_stats("EpCost") # mean EpCost over all episodes
+er.get_stats("EpCost") # mean EpCost over all episodes
             
             # Objective function
             action = self.actor(state)
@@ -315,7 +315,8 @@ class CPO(object):
             # Core calculations for CPO
             Hinv_g   = cg(Hx, g)             # Hinv_g = H \ g        
             approx_g = Hx(Hinv_g)           # g
-            q        = Hinv_g.T @ approx_g  # g.T / H @ g
+            # q        = Hinv_g.T @ approx_g  # g.T / H @ g
+            q        = np.clip(Hinv_g.T @ approx_g, 0.0, None)  # g.T / H @ g
 
             # solve QP
             # decide optimization cases (feas/infeas, recovery)
@@ -369,10 +370,10 @@ class CPO(object):
                 f_a = lambda lam : -0.5 * (A / (lam+EPS) + B * lam) - r*c/(s+EPS)
                 f_b = lambda lam : -0.5 * (q / (lam+EPS) + 2 * self.delta * lam)
                 lam = lam_a if f_a(lam_a) >= f_b(lam_b) else lam_b
-                nu = max(0, lam * c - r) / (abs(s+EPS))
+                nu = max(0, lam * c - r) / (np.clip(s,0.,None) + EPS)
             else:
                 lam = 0
-                nu = np.sqrt(2 * self.delta / (abs(s+EPS)))
+                nu = np.sqrt(2 * self.delta / (np.clip(s,0.,None) + EPS))
             
             # normal step if optim_case > 0, but for optim_case =0,
             # perform infeasible recovery: step to purely decrease cost

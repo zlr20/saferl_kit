@@ -91,11 +91,16 @@ def get_datasets(logdir, condition=None):
             except:
                 print('Could not read from %s'%os.path.join(root,'progress.txt'))
                 continue
-            performance = 'AverageTestEpRet' if 'AverageTestEpRet' in exp_data else 'AverageEpRet'
+            reward_performance = 'AverageTestEpRet' if 'AverageTestEpRet' in exp_data else 'AverageEpRet'
+            cost_performance = 'AverageTestEpCost' if 'AverageTestEpCost' in exp_data else 'AverageEpCost'
             exp_data.insert(len(exp_data.columns),'Unit',unit)
             exp_data.insert(len(exp_data.columns),'Condition1',condition1)
             exp_data.insert(len(exp_data.columns),'Condition2',condition2)
-            exp_data.insert(len(exp_data.columns),'Performance',exp_data[performance])
+            exp_data.insert(len(exp_data.columns),'Reward_Performance',exp_data[reward_performance])
+            # import ipdb; ipdb.set_trace()
+            # if exp_data[cost_performance]:
+            if cost_performance in exp_data:
+                exp_data.insert(len(exp_data.columns),'Cost_Performance',exp_data[cost_performance])
             datasets.append(exp_data)
     return datasets
 
@@ -152,20 +157,32 @@ def get_all_datasets(all_logdirs, legend=None, select=None, exclude=None):
 
 
 def make_plots(all_logdirs, legend=None, xaxis=None, values=None, count=False,  
-               font_scale=1.5, smooth=1, select=None, exclude=None, estimator='mean', results_dir=None, title='reward'):
+               font_scale=1.5, smooth=1, select=None, exclude=None, estimator='mean', results_dir=None, title='reward', reward_flag=True, cost_flag=False):
+    # create a separate folder for each plot 
+    # results_dir = osp.join(results_dir, title)
     data = get_all_datasets(all_logdirs, legend, select, exclude)
-    values = values if isinstance(values, list) else [values]
+    # values = values if isinstance(values, list) else [values]
+    
+    values = []
+    if reward_flag:
+        values.append('Reward_Performance')
+    if cost_flag:
+        values.append('Cost_Performance')
+    
     condition = 'Condition2' if count else 'Condition1'
     estimator = getattr(np, estimator)      # choose what to show on main curve: mean? max? min?
+    # import ipdb; ipdb.set_trace()
     for value in values:
+        subdir = title + '/'
         plt.figure()
         plot_data(data, xaxis=xaxis, value=value, condition=condition, smooth=smooth, estimator=estimator)
-    # make direction for save figure
-    existence = os.path.exists(results_dir)
-    if not existence:
-        os.makedirs(results_dir)
-    plt.show()
-    plt.savefig(results_dir + title, dpi=400, bbox_inches='tight')
+        # make direction for save figure
+        final_dir = osp.join(results_dir, subdir)
+        existence = os.path.exists(final_dir)
+        if not existence:
+            os.makedirs(final_dir)
+        plt.show()
+        plt.savefig(final_dir + value, dpi=400, bbox_inches='tight')
 
 
 def main():
@@ -179,6 +196,8 @@ def main():
     parser.add_argument('--legend', '-l', nargs='*')
     parser.add_argument('--xaxis', '-x', default='TotalEnvInteracts')
     parser.add_argument('--value', '-y', default='Performance', nargs='*')
+    parser.add_argument('--reward', action='store_true')
+    parser.add_argument('--cost', action='store_true')
     parser.add_argument('--count', action='store_true')
     parser.add_argument('--smooth', '-s', type=int, default=1)
     parser.add_argument('--select', nargs='*')
@@ -234,9 +253,12 @@ def main():
 
     """
 
+    reward_flag = True if args.reward else False
+    cost_flag = True if args.cost else False
+        
     make_plots(args.logdir, args.legend, args.xaxis, args.value, args.count, 
                smooth=args.smooth, select=args.select, exclude=args.exclude,
-               estimator=args.est, results_dir=args.results_dir, title=args.title)
+               estimator=args.est, results_dir=args.results_dir, title=args.title, reward_flag=reward_flag, cost_flag=cost_flag)
 
 if __name__ == "__main__":
     main()

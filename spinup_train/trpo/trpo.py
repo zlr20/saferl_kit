@@ -9,12 +9,12 @@ import copy
 import trpo_core as core
 from utils.logx import EpochLogger, setup_logger_kwargs, colorize
 from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
-from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs
+from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs, mpi_sum
 from safety_gym.envs.engine import Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class TRPOBuffer:
@@ -144,7 +144,7 @@ def auto_hession_x(objective, net, x):
 def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
         steps_per_epoch=4000, epochs=50, gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
         vf_lr=1e-3, train_pi_iters=80, train_v_iters=80, lam=0.97, max_ep_len=1000,
-        target_kl=0.01, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100):
+        target_kl=0.01, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100, model_save=False):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -301,7 +301,9 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
         # Policy loss 
         pi, logp = cur_pi(obs, act)
-        loss_pi = -(logp * adv).mean()
+        # loss_pi = -(logp * adv).mean()
+        ratio = torch.exp(logp - logp_old)
+        loss_pi = -(ratio * adv).mean()
         
         # Useful extra info
         approx_kl = (logp_old - logp).mean().item()
@@ -321,7 +323,8 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     vf_optimizer = Adam(ac.v.parameters(), lr=vf_lr)
 
     # Set up model saving
-    logger.setup_pytorch_saver(ac)
+    if model_save:
+        logger.setup_pytorch_saver(ac)
 
     def update():
         data = buf.get()
@@ -386,15 +389,23 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Prepare for interaction with environment
     start_time = time.time()
     o, ep_ret, ep_len = env.reset(), 0, 0
+    ep_cost, cum_cost = 0, 0
 
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
             a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
 
-            next_o, r, d, _ = env.step(a)
+            next_o, r, d, info = env.step(a)
+            
+            # Include penalty on cost
+            c = info['cost']
+            # Track cumulative cost over training
+            cum_cost += c
+            
             ep_ret += r
             ep_len += 1
+            ep_cost += c
 
             # save and log
             buf.store(o, a, r, v, logp)
@@ -418,21 +429,31 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 buf.finish_path(v)
                 if terminal:
                     # only save EpRet / EpLen if trajectory finished
-                    logger.store(EpRet=ep_ret, EpLen=ep_len)
+                    # logger.store(EpRet=ep_ret, EpLen=ep_len)
+                    logger.store(EpRet=ep_ret, EpLen=ep_len, EpCost=ep_cost)
                 o, ep_ret, ep_len = env.reset(), 0, 0
-
+                ep_cost = 0 # episode cost is zero 
 
         # Save model
-        if (epoch % save_freq == 0) or (epoch == epochs-1):
+        if ((epoch % save_freq == 0) or (epoch == epochs-1)) and model_save:
             logger.save_state({'env': env}, None)
 
-        # Perform PPO update!
+        # Perform TRPO update!
         update()
+        
+        #=====================================================================#
+        #  Cumulative cost calculations                                       #
+        #=====================================================================#
+        cumulative_cost = mpi_sum(cum_cost)
+        cost_rate = cumulative_cost / ((epoch+1)*steps_per_epoch)
 
         # Log info about epoch
         logger.log_tabular('Epoch', epoch)
         logger.log_tabular('EpRet', with_min_and_max=True)
+        logger.log_tabular('EpCost', with_min_and_max=True)
         logger.log_tabular('EpLen', average_only=True)
+        logger.log_tabular('CumulativeCost', cumulative_cost)
+        logger.log_tabular('CostRate', cost_rate)
         logger.log_tabular('VVals', with_min_and_max=True)
         logger.log_tabular('TotalEnvInteracts', (epoch+1)*steps_per_epoch)
         logger.log_tabular('LossPi', average_only=True)
@@ -463,13 +484,17 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int, default=2000)
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--exp_name', type=str, default='trpo')
+    parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
     
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
 
+    # whether to save model
+    model_save = True if args.model_save else False
+
     trpo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
-        logger_kwargs=logger_kwargs)
+        logger_kwargs=logger_kwargs, model_save=model_save)
