@@ -136,3 +136,5 @@ all_logs/
 all_models/
 
 *.csv
+
+results/
