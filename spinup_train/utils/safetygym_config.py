@@ -174,6 +174,7 @@ def configuration(task, args):
 
     if task == "Arm_goal_0":
         config = {
+            'num_steps': 1000,
             'robot_base': 'xmls/arm.xml',
             'task': 'goal',
             'goal_3D': True,

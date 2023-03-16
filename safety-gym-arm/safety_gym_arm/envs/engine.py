@@ -49,8 +49,8 @@ GROUP_HAZARD3D = 7
 ORIGIN_COORDINATES = np.zeros(3)
 
 # Constant defaults for rendering frames for humans (not used for vision)
-DEFAULT_WIDTH = 256
-DEFAULT_HEIGHT = 256
+DEFAULT_WIDTH = 1920
+DEFAULT_HEIGHT = 1080
 
 class ResamplingError(AssertionError):
     ''' Raised when we fail to sample a valid distribution of objects or goals '''
@@ -1636,7 +1636,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
 
     def render(self,
                mode='human', 
-               camera_id=None,
+               camera_id=-1,
                width=DEFAULT_WIDTH,
                height=DEFAULT_HEIGHT
                ):
@@ -1652,7 +1652,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 self.viewer = MjRenderContextOffscreen(self.sim)
                 self.viewer._hide_overlay = True
                 self.viewer.cam.fixedcamid = camera_id #self.model.camera_name2id(mode)
-                self.viewer.cam.type = const.CAMERA_FIXED
+                # self.viewer.cam.type = const.CAMERA_FIXED
+                self.viewer.cam.type = const.CAMERA_FREE
             self.viewer.render_swap_callback = self.render_swap_callback
             # Turn all the geom groups on
             self.viewer.vopt.geomgroup[:] = 1

@@ -140,3 +140,6 @@ all_models/
 results/
 
 comparison_group/
+
+# video generation for the policy visualization 
+video/

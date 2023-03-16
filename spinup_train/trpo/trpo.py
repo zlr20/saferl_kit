@@ -10,7 +10,7 @@ import trpo_core as core
 from utils.logx import EpochLogger, setup_logger_kwargs, colorize
 from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
 from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs, mpi_sum
-# from safety_gym.envs.engine import Engine as safety_gym_Engine
+from safety_gym.envs.engine import Engine as safety_gym_Engine
 from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
@@ -478,9 +478,7 @@ def create_env(args):
     if 'Arm' in args.task:
         env = safety_gym_arm_Engine(configuration(args.task, args))
     else:
-        # env = safety_gym_Engine(configuration(args.task, args))
-        raise NotImplementedError
-        exit
+        env = safety_gym_Engine(configuration(args.task, args))
     return env
 
 if __name__ == '__main__':
@@ -497,6 +495,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--exp_name', type=str, default='trpo')
     parser.add_argument('--model_save', action='store_true')
+    parser.add_argument('--target_kl', type=float, default=0.01)
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
@@ -509,4 +508,4 @@ if __name__ == '__main__':
     trpo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
-        logger_kwargs=logger_kwargs, model_save=model_save)
+        logger_kwargs=logger_kwargs, model_save=model_save, target_kl=args.target_kl)
