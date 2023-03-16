@@ -93,6 +93,7 @@ def get_datasets(logdir, condition=None):
                 continue
             reward_performance = 'AverageTestEpRet' if 'AverageTestEpRet' in exp_data else 'AverageEpRet'
             cost_performance = 'AverageTestEpCost' if 'AverageTestEpCost' in exp_data else 'AverageEpCost'
+            cost_rate_performance = 'AverageTestCostRate' if 'AverageTestCostRate' in exp_data else 'CostRate'
             exp_data.insert(len(exp_data.columns),'Unit',unit)
             exp_data.insert(len(exp_data.columns),'Condition1',condition1)
             exp_data.insert(len(exp_data.columns),'Condition2',condition2)
@@ -101,6 +102,8 @@ def get_datasets(logdir, condition=None):
             # if exp_data[cost_performance]:
             if cost_performance in exp_data:
                 exp_data.insert(len(exp_data.columns),'Cost_Performance',exp_data[cost_performance])
+            if cost_rate_performance in exp_data:
+                exp_data.insert(len(exp_data.columns),'Cost_Rate_Performance',exp_data[cost_rate_performance])
             datasets.append(exp_data)
     return datasets
 
@@ -168,6 +171,7 @@ def make_plots(all_logdirs, legend=None, xaxis=None, values=None, count=False,
         values.append('Reward_Performance')
     if cost_flag:
         values.append('Cost_Performance')
+        values.append('Cost_Rate_Performance')
     
     condition = 'Condition2' if count else 'Condition1'
     estimator = getattr(np, estimator)      # choose what to show on main curve: mean? max? min?
@@ -175,7 +179,11 @@ def make_plots(all_logdirs, legend=None, xaxis=None, values=None, count=False,
     for value in values:
         subdir = title + '/'
         plt.figure()
-        plot_data(data, xaxis=xaxis, value=value, condition=condition, smooth=smooth, estimator=estimator)
+        try:
+            plot_data(data, xaxis=xaxis, value=value, condition=condition, smooth=smooth, estimator=estimator)
+        except:
+            print(f"this key {value} is not in the data")
+            break
         # make direction for save figure
         final_dir = osp.join(results_dir, subdir)
         existence = os.path.exists(final_dir)

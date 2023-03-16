@@ -138,3 +138,5 @@ all_models/
 *.csv
 
 results/
+
+comparison_group/
