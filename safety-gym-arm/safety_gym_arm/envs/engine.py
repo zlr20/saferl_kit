@@ -736,7 +736,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
                     'group': GROUP_GOAL,
                     'rgba': COLOR_GOAL * [1, 1, 1, 0.25]}  # transparent
             else:
-                if len(self.goal_locations[0]) != 0:
+                # if len(self.goal_locations[0]) != 0:
+                if len(self.goal_locations) != 0:
                     goal_pos = np.r_[self.goal_locations[0], 1.0]
                 else:
                     goal_pos = np.r_[self.layout['goal'], np.random.uniform(self.goal_size,1.5)]

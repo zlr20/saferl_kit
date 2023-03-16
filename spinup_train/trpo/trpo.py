@@ -10,7 +10,8 @@ import trpo_core as core
 from utils.logx import EpochLogger, setup_logger_kwargs, colorize
 from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
 from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs, mpi_sum
-from safety_gym.envs.engine import Engine
+# from safety_gym.envs.engine import Engine as safety_gym_Engine
+from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
@@ -399,7 +400,14 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             next_o, r, d, info = env.step(a)
             
             # Include penalty on cost
-            c = info['cost']
+            try:
+                c = info['cost']
+            except:
+                if 'cost_exception' in info.keys():
+                    c = 0. # this means the simulator will end early 
+                else:
+                    print(colorize(f'the cost is not defined, this is the info contents: {info}', 'red', bold=False))
+                    exit()
             # Track cumulative cost over training
             cum_cost += c
             
@@ -467,13 +475,17 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
         
 def create_env(args):
-    env = Engine(configuration(args.task, args))
+    if 'Arm' in args.task:
+        env = safety_gym_arm_Engine(configuration(args.task, args))
+    else:
+        # env = safety_gym_Engine(configuration(args.task, args))
+        raise NotImplementedError
+        exit
     return env
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()    
-    parser.add_argument('--env', type=str, default='SafetyGym')
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
     parser.add_argument('--hid', type=int, default=64)

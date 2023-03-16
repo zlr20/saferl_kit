@@ -60,13 +60,13 @@ def run_random(env_name):
         assert env.observation_space.contains(obs)
         act = env.action_space.sample()
         # act = [0.0, 0.0]
-        act = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        cnt = cnt%T
-        cnt += 1
-        if cnt  > 100:
-            act = [0.0, 0.0, 0.0, 0.0, -0.8, 0.0]  
-        if cnt > 200:
-            act = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        # act = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        # cnt = cnt%T
+        # cnt += 1
+        # if cnt  > 100:
+        #     act = [0.0, 0.0, 0.0, 0.0, -0.8, 0.0]  
+        # if cnt > 200:
+        #     act = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         # if cnt > 300:
         #     act = [0.0, -0.5, 0.0, 0.0, 0.0, 0.0]
         # if cnt > 400:
@@ -84,7 +84,7 @@ def run_random(env_name):
 
         assert env.action_space.contains(act)
         obs, reward, done, info = env.step(act)
-        import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
         # print(obs['accelerometer_link_2'])
         # joint = []
         # for i in range(6):
@@ -93,7 +93,7 @@ def run_random(env_name):
         # print('reward', reward)
         ep_ret += reward
         ep_cost += info.get('cost', 0)
-        env.render()
+        # env.render()
 
 
 if __name__ == '__main__':

@@ -113,6 +113,7 @@ class MLPActorCritic(nn.Module):
         super().__init__()
         self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
+        # import ipdb; ipdb.set_trace()
         obs_dim = observation_space.shape[0]
 
         # policy builder depends on action space

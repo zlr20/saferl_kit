@@ -9,7 +9,8 @@ import ppo_core as core
 from utils.logx import EpochLogger, setup_logger_kwargs
 from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
 from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs
-from safety_gym.envs.engine import Engine
+# from safety_gym.envs.engine import Engine
+from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
@@ -367,7 +368,12 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.dump_tabular()
         
 def create_env(args):
-    env = Engine(configuration(args.task, args))
+    if 'Arm' in args.task:
+        env = safety_gym_arm_Engine(configuration(args.task, args))
+    else:
+        # env = safety_gym_Engine(configuration(args.task, args))
+        raise NotImplementedError
+        exit
     return env
 
 if __name__ == '__main__':
