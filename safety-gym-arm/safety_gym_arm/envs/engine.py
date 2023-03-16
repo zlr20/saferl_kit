@@ -306,6 +306,9 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'frameskip_binom_n': 10,  # Number of draws trials in binomial distribution (max frameskip)
         'frameskip_binom_p': 1.0,  # Probability of trial return (controls distribution)
 
+        # For robot arm
+        'arm_link_n': 7,
+
         '_seed': None,  # Random state seed (avoid name conflict with self.seed)
     }
 
@@ -736,9 +739,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
                     'group': GROUP_GOAL,
                     'rgba': COLOR_GOAL * [1, 1, 1, 0.25]}  # transparent
             else:
-                # if len(self.goal_locations[0]) != 0:
                 if len(self.goal_locations) != 0:
-                    goal_pos = np.r_[self.goal_locations[0], 1.0]
+                    goal_pos = np.r_[self.goal_locations[0], 1.8]
                 else:
                     goal_pos = np.r_[self.layout['goal'], np.random.uniform(self.goal_size,1.5)]
                 geom = {'name': 'goal',
@@ -949,7 +951,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
     def dist_goal(self):
         ''' Return the distance from the robot to the goal XY position '''
         if 'arm' in self.robot_base:
-             end_pos = self.world.body_pos('link_7')
+             end_pos = self.world.body_pos('link_' + str(self.arm_link_n))
              return np.sqrt(np.sum(np.square(self.goal_pos - end_pos)))
         return self.dist_xy(self.goal_pos)
 
@@ -978,14 +980,14 @@ class Engine(gym.Env, gym.utils.EzPickle):
         if 'arm' in self.robot_base:
             link = []
             link_r = []
-            for i in range(7):
+            for i in range(self.arm_link_n):
                 link.append(self.world.body_pos('link_'+ str(i + 1)))
                 link_r.append(self.world.body_size('link_'+ str(i + 1))[0])
                 assert link[i].shape == (3,)
 
             min_dist = float('inf')
 
-            for i in range(6):
+            for i in range(self.arm_link_n - 1):
                 cur_dist, _ = distLinSeg(link[i], link[i + 1], pos, pos)
                 cur_dist -= link_r[i]
                 min_dist = min(cur_dist, min_dist)
