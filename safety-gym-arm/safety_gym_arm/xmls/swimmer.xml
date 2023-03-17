@@ -4,7 +4,7 @@
   <default>
     <geom conaffinity="1" condim="3" contype="1" rgba="1 0 0 1"/>
     <joint armature='0.1'  />
-    <site size="0.1" type="sphere" rgba="0 0 1 1"/>
+    <site size="0.1" type="sphere" rgba="0 0 1 0"/>
   </default>
   <worldbody>
     <geom name="floor" size="5 5 0.1" type="plane" condim="6"/>
