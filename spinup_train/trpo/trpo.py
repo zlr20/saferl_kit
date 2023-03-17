@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class TRPOBuffer:
@@ -109,7 +109,7 @@ def assign_net_param_from_flat(param_vec, net):
         param.data.copy_(torch.from_numpy(param_vec[ptr:ptr+s]).reshape(param.shape))
         ptr += s
 
-def cg(Ax, b, cg_iters=10):
+def cg(Ax, b, cg_iters=100):
     x = np.zeros_like(b)
     r = b.copy() # Note: should be 'b - Ax', but for x=0, Ax=0. Change if doing warm start.
     p = r.copy()
@@ -122,6 +122,9 @@ def cg(Ax, b, cg_iters=10):
         r_dot_new = np.dot(r,r)
         p = r + (r_dot_new / r_dot_old) * p
         r_dot_old = r_dot_new
+        # early stopping 
+        if np.linalg.norm(p) < EPS:
+            break
     return x
 
 def auto_grad(objective, net, to_numpy=True):
@@ -343,6 +346,8 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         x_hat    = cg(Hx, g)             # Hinv_g = H \ g
         
         s = x_hat.T @ Hx(x_hat)
+        s_ep = s if s < 0. else 1 # log s negative appearence 
+            
         x_direction = np.sqrt(2 * target_kl / (np.clip(s,0.,None)+EPS)) * x_hat
         
         # copy an actor to conduct line search 
@@ -385,7 +390,8 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.store(LossPi=pi_l_old, LossV=v_l_old,
                      KL=kl, Entropy=ent,
                      DeltaLossPi=(loss_pi.item() - pi_l_old),
-                     DeltaLossV=(loss_v.item() - v_l_old))
+                     DeltaLossV=(loss_v.item() - v_l_old),
+                     EpochS = s_ep)
 
     # Prepare for interaction with environment
     start_time = time.time()
@@ -471,6 +477,7 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('Entropy', average_only=True)
         logger.log_tabular('KL', average_only=True)
         logger.log_tabular('Time', time.time()-start_time)
+        logger.log_tabular('EpochS', average_only=True)
         logger.dump_tabular()
         
         
