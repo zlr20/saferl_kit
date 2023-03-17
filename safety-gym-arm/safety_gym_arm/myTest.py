@@ -10,11 +10,12 @@ from safety_gym_arm.envs.engine import Engine
 def run_random(env_name):
     # env = gym.make(env_name)
     config = {
-        'robot_base': 'xmls/humanoid.xml',
+        'robot_base': 'xmls/ant_little.xml',
+        # 'num_steps': 2000,
         # 'arm_link_n': 5,
         'task': 'goal',
         # 'goal_3D': True,
-        'goal_locations': [(0.0,-1.0)],
+        # 'goal_locations': [(0.0,-1.0)],
         'observe_goal_lidar': False,
         # 'compass_shape': 2,
         'goal_size': 0.5,
@@ -48,8 +49,8 @@ def run_random(env_name):
         'hazard3Ds_num': 0,
         'hazards_num': 6,
         'vases_num': 0,
-        'robot_locations':[(0.0,0.0)],
-        'robot_rot':0
+        # 'robot_locations':[(0.0,0.0)],
+        # 'robot_rot':0
     }
 
     env = Engine(config)
@@ -125,7 +126,7 @@ def run_random(env_name):
         ep_ret += reward
         a = info['cost']
         ep_cost += info.get('cost', 0)
-        # env.render()
+        env.render()
 
 
 if __name__ == '__main__':
