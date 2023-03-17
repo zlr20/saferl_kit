@@ -10,7 +10,8 @@ import cpo_core as core
 from utils.logx import EpochLogger, setup_logger_kwargs, colorize
 from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
 from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs, mpi_sum
-from safety_gym.envs.engine import Engine
+from safety_gym.envs.engine import Engine as safety_gym_Engine
+from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
@@ -36,10 +37,12 @@ class CPOBuffer:
         self.cost_val_buf = np.zeros(size, dtype=np.float32)
         self.adc_buf      = np.zeros(size, dtype=np.float32)
         self.logp_buf     = np.zeros(size, dtype=np.float32)
+        self.mu_buf       = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
+        self.logstd_buf   = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.gamma, self.lam = gamma, lam
         self.ptr, self.path_start_idx, self.max_size = 0, 0, size
 
-    def store(self, obs, act, rew, val, logp, cost, cost_val):
+    def store(self, obs, act, rew, val, logp, cost, cost_val, mu, logstd):
         """
         Append one timestep of agent-environment interaction to the buffer.
         """
@@ -51,6 +54,8 @@ class CPOBuffer:
         self.logp_buf[self.ptr]     = logp
         self.cost_buf[self.ptr]     = cost
         self.cost_val_buf[self.ptr] = cost_val
+        self.mu_buf[self.ptr]       = mu
+        self.logstd_buf[self.ptr]   = logstd
         self.ptr += 1
 
     def finish_path(self, last_val=0, last_cost_val=0):
@@ -111,7 +116,9 @@ class CPOBuffer:
                     adv=torch.FloatTensor(self.adv_buf).to(device),
                     cost_ret=torch.FloatTensor(self.cost_ret_buf).to(device),
                     adc=torch.FloatTensor(self.adc_buf).to(device),
-                    logp=torch.FloatTensor(self.logp_buf).to(device))
+                    logp=torch.FloatTensor(self.logp_buf).to(device),
+                    mu=torch.FloatTensor(self.mu_buf).to(device),
+                    logstd=torch.FloatTensor(self.logstd_buf).to(device))
         return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in data.items()}
 
 
@@ -128,7 +135,7 @@ def assign_net_param_from_flat(param_vec, net):
         param.data.copy_(torch.from_numpy(param_vec[ptr:ptr+s]).reshape(param.shape))
         ptr += s
 
-def cg(Ax, b, cg_iters=10):
+def cg(Ax, b, cg_iters=100):
     x = np.zeros_like(b)
     r = b.copy() # Note: should be 'b - Ax', but for x=0, Ax=0. Change if doing warm start.
     p = r.copy()
@@ -141,6 +148,9 @@ def cg(Ax, b, cg_iters=10):
         r_dot_new = np.dot(r,r)
         p = r + (r_dot_new / r_dot_old) * p
         r_dot_old = r_dot_new
+        # early stopping 
+        if np.linalg.norm(p) < EPS:
+            break
     return x
 
 def auto_grad(objective, net, to_numpy=True):
@@ -300,15 +310,31 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     buf = CPOBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
 
 
+    # def compute_kl_pi(data, cur_pi):
+    #     """
+    #     Return the sample average KL divergence between old and new policies
+    #     """
+    #     obs, act, logp_old = data['obs'], data['act'], data['logp']
+        
+    #     # Average KL Divergence  
+    #     pi, logp = cur_pi(obs, act)
+    #     average_kl = (logp_old - logp).mean()
+        
+    #     return average_kl
+    
     def compute_kl_pi(data, cur_pi):
         """
         Return the sample average KL divergence between old and new policies
         """
-        obs, act, logp_old = data['obs'], data['act'], data['logp']
+        obs, act, adv, logp_old, mu_old, logstd_old = data['obs'], data['act'], data['adv'], data['logp'], data['mu'], data['logstd']
         
         # Average KL Divergence  
         pi, logp = cur_pi(obs, act)
-        average_kl = (logp_old - logp).mean()
+        # average_kl = (logp_old - logp).mean()
+        average_kl = cur_pi._d_kl(
+            torch.as_tensor(obs, dtype=torch.float32),
+            torch.as_tensor(mu_old, dtype=torch.float32),
+            torch.as_tensor(logstd_old, dtype=torch.float32), device=device)
         
         return average_kl
     
@@ -398,7 +424,8 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # core calculation for CPO
         Hinv_g   = cg(Hx, g)             # Hinv_g = H \ g        
         approx_g = Hx(Hinv_g)           # g
-        q        = np.clip(Hinv_g.T @ approx_g, 0.0, None)  # g.T / H @ g
+        # q        = np.clip(Hinv_g.T @ approx_g, 0.0, None)  # g.T / H @ g
+        q        = Hinv_g.T @ approx_g
         
         # solve QP
         # decide optimization cases (feas/infeas, recovery)
@@ -452,10 +479,12 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             f_a = lambda lam : -0.5 * (A / (lam+EPS) + B * lam) - r*c/(s+EPS)
             f_b = lambda lam : -0.5 * (q / (lam+EPS) + 2 * target_kl * lam)
             lam = lam_a if f_a(lam_a) >= f_b(lam_b) else lam_b
-            nu = max(0, lam * c - r) / (np.clip(s,0.,None)+EPS)
+            # nu = max(0, lam * c - r) / (np.clip(s,0.,None)+EPS)
+            nu = max(0, lam * c - r) / (s+EPS)
         else:
             lam = 0
-            nu = np.sqrt(2 * target_kl / (np.clip(s,0.,None)+EPS))
+            # nu = np.sqrt(2 * target_kl / (np.clip(s,0.,None)+EPS))
+            nu = np.sqrt(2 * target_kl / (s+EPS))
             
         # normal step if optim_case > 0, but for optim_case =0,
         # perform infeasible recovery: step to purely decrease cost
@@ -529,7 +558,7 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
-            a, v, vc, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, vc, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
 
             next_o, r, d, info = env.step(a)
             # Track cumulative cost over training
@@ -540,7 +569,7 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             ep_len += 1
 
             # save and log
-            buf.store(o, a, r, v, logp, info['cost'], vc)
+            buf.store(o, a, r, v, logp, info['cost'], vc, mu, logstd)
             logger.store(VVals=v)
             
             # Update obs (critical!)
@@ -555,7 +584,7 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     print('Warning: trajectory cut off by epoch at %d steps.'%ep_len, flush=True)
                 # if trajectory didn't reach terminal state, bootstrap value target
                 if timeout or epoch_ended:
-                    _, v, vc, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
+                    _, v, vc, _, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
                 else:
                     v = 0
                     vc = 0
@@ -600,7 +629,10 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
         
 def create_env(args):
-    env = Engine(configuration(args.task, args))
+    if 'Arm' in args.task:
+        env = safety_gym_arm_Engine(configuration(args.task, args))
+    else:
+        env = safety_gym_Engine(configuration(args.task, args))
     return env
 
 if __name__ == '__main__':

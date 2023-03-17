@@ -7,6 +7,19 @@ import torch.nn as nn
 from torch.distributions.normal import Normal
 from torch.distributions.categorical import Categorical
 
+EPS = 1e-8
+
+def diagonal_gaussian_kl(mu0, log_std0, mu1, log_std1):
+    """
+    torch symbol for mean KL divergence between two batches of diagonal gaussian distributions,
+    where distributions are specified by means and log stds.
+    (https://en.wikipedia.org/wiki/Kullback-Leibler_divergence#Multivariate_normal_distributions)
+    """
+    
+    var0, var1 = torch.exp(2 * log_std0), torch.exp(2 * log_std1)
+    pre_sum = 0.5*(((mu1- mu0)**2 + var0)/(var1 + EPS) - 1) +  log_std1 - log_std0
+    all_kls = torch.sum(pre_sum, axis=1)
+    return torch.mean(all_kls)
 
 def combined_shape(length, shape=None):
     if shape is None:
@@ -61,6 +74,9 @@ class Actor(nn.Module):
         if act is not None:
             logp_a = self._log_prob_from_distribution(pi, act)
         return pi, logp_a
+    
+    def _d_kl(self, obs, old_mu, old_log_std, device):
+        raise NotImplementedError
 
 
 class MLPCategoricalActor(Actor):
@@ -75,6 +91,9 @@ class MLPCategoricalActor(Actor):
 
     def _log_prob_from_distribution(self, pi, act):
         return pi.log_prob(act)
+    
+    def _d_kl(self, obs, old_mu, old_log_std, device):
+        raise NotImplementedError
 
 
 class MLPGaussianActor(Actor):
@@ -87,11 +106,20 @@ class MLPGaussianActor(Actor):
 
     def _distribution(self, obs):
         mu = self.mu_net(obs)
-        std = torch.clamp(0.01 + 0.99 * torch.exp(self.log_std), max=10)
+        # std = torch.clamp(0.01 + 0.99 * torch.exp(self.log_std), max=10)
+        std = torch.exp(self.log_std)
         return Normal(mu, std)
 
     def _log_prob_from_distribution(self, pi, act):
         return pi.log_prob(act).sum(axis=-1)    # Last axis sum needed for Torch Normal distribution
+    
+    def _d_kl(self, obs, old_mu, old_log_std, device):
+        # kl divergence computation 
+        mu = self.mu_net(obs.to(device))
+        log_std = self.log_std 
+        
+        d_kl = diagonal_gaussian_kl(mu, log_std, old_mu.to(device), old_log_std.to(device))
+        return d_kl
 
 
 class MLPCritic(nn.Module):
@@ -135,7 +163,7 @@ class MLPActorCritic(nn.Module):
             logp_a = self.pi._log_prob_from_distribution(pi, a)
             v = self.v(obs)
             vc = self.vc(obs)
-        return a.cpu().numpy(), v.cpu().numpy(), vc.cpu().numpy(), logp_a.cpu().numpy()
+        return a.cpu().numpy(), v.cpu().numpy(), vc.cpu().numpy(), logp_a.cpu().numpy(), pi.mean.cpu().numpy(), torch.log(pi.stddev).cpu().numpy()
 
     def act(self, obs):
         return self.step(obs)[0]
