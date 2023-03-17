@@ -27,7 +27,7 @@ def create_env(args):
     return env
 
 
-def replay(env_fn, model_path=None, video_name=None):
+def replay(env_fn, model_path=None, video_name=None, max_epoch=1):
     if not model_path:
         print("please specify a model path")
         raise NotImplementedError
@@ -43,6 +43,7 @@ def replay(env_fn, model_path=None, video_name=None):
     d = False
     ep_ret = 0
     time_step = 0
+    epoch = 0
     
     video_array = []
     
@@ -53,10 +54,11 @@ def replay(env_fn, model_path=None, video_name=None):
     while True:
         time_step += 1
         if d:
+            epoch += 1
             print('Episode Return: %.3f'%(ep_ret))
-            env.close()
-            break
-
+            if epoch == max_epoch:
+                env.close()
+                break
             ep_ret = 0
             o = env.reset()
         
@@ -99,8 +101,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()    
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
+    parser.add_argument('--max_epoch', type=int, default=1)  # the maximum number of epochs
     parser.add_argument('--model_path', type=str, default=None)
     parser.add_argument('--video_name', type=str, default=None)
     args = parser.parse_args()
 
-    replay(lambda : create_env(args), model_path=args.model_path, video_name=args.video_name)
+    replay(lambda : create_env(args), model_path=args.model_path, video_name=args.video_name, max_epoch=args.max_epoch)
