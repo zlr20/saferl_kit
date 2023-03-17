@@ -10,20 +10,21 @@ from safety_gym_arm.envs.engine import Engine
 def run_random(env_name):
     # env = gym.make(env_name)
     config = {
-        'robot_base': 'xmls/arm_3.xml',
-        'arm_link_n': 5,
+        'robot_base': 'xmls/humanoid.xml',
+        # 'arm_link_n': 5,
         'task': 'goal',
-        'goal_3D': True,
+        # 'goal_3D': True,
         'goal_locations': [(0.0,-1.0)],
         'observe_goal_lidar': False,
-        'compass_shape': 3,
+        # 'compass_shape': 2,
         'goal_size': 0.5,
         'observe_goal_comp': True,
         # 'observe_box_lidar': False,
         # 'observe_box_comp': True,
+        'observe_hazards': True,
         'observe_hazard3Ds': False,
         'observe_vases': False,
-        'constrain_hazards': False,
+        'constrain_hazards': True,
         'constrain_hazard3Ds': True,
         'observation_flatten': False,
         # 'continue_goal': True,
@@ -33,17 +34,19 @@ def run_random(env_name):
         #                 'accelerometer_link_4', 'velocimeter_link_4', 'gyro_link_4', 'magnetometer_link_4',
         #                 'accelerometer_link_5', 'velocimeter_link_5', 'gyro_link_5', 'magnetometer_link_5',
         #                 'accelerometer_link_6', 'velocimeter_link_6', 'gyro_link_6', 'magnetometer_link_6'],
-        'sensors_obs': ['accelerometer_link_1', 'velocimeter_link_1', 'gyro_link_1', 'magnetometer_link_1',
-                        'accelerometer_link_2', 'velocimeter_link_2', 'gyro_link_2', 'magnetometer_link_2',
-                        'accelerometer_link_3', 'velocimeter_link_3', 'gyro_link_3', 'magnetometer_link_3',
-                        'accelerometer_link_4', 'velocimeter_link_4', 'gyro_link_4', 'magnetometer_link_4',
-                        'accelerometer_link_5', 'velocimeter_link_5', 'gyro_link_5', 'magnetometer_link_5',],
+
+        # 'sensors_obs': ['accelerometer_link_1', 'velocimeter_link_1', 'gyro_link_1', 'magnetometer_link_1',
+        #                 'accelerometer_link_2', 'velocimeter_link_2', 'gyro_link_2', 'magnetometer_link_2',
+        #                 'accelerometer_link_3', 'velocimeter_link_3', 'gyro_link_3', 'magnetometer_link_3',
+        #                 'accelerometer_link_4', 'velocimeter_link_4', 'gyro_link_4', 'magnetometer_link_4',
+        #                 'accelerometer_link_5', 'velocimeter_link_5', 'gyro_link_5', 'magnetometer_link_5',],
         'lidar_max_dist': 3,
         'lidar_num_bins': 10,
         'lidar_num_bins3D': 6,
-        'lidar_body': ['link_1', 'link_3', 'link_5'],
+        # 'lidar_body': ['link_1', 'link_3', 'link_5', 'link_7'],
         'render_lidar_radius': 0.25,
         'hazard3Ds_num': 0,
+        'hazards_num': 6,
         'vases_num': 0,
         'robot_locations':[(0.0,0.0)],
         'robot_rot':0
@@ -66,6 +69,7 @@ def run_random(env_name):
             obs = env.reset()
         assert env.observation_space.contains(obs)
         act = env.action_space.sample()
+        # act = np.zeros(act.shape)
         # act = [0.0, 0.0]
         # act = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         # cnt = cnt%T
@@ -110,7 +114,7 @@ def run_random(env_name):
         # if cnt > 900:
         #     act = [0.6, 0.2, -0.4, 0.0, 0.0, 0.6]
 
-        assert env.action_space.contains(act)
+        # assert env.action_space.contains(act)
         obs, reward, done, info = env.step(act)
         # print(obs['accelerometer_link_2'])
         # joint = []
@@ -122,6 +126,8 @@ def run_random(env_name):
         a = info['cost']
         ep_cost += info.get('cost', 0)
         env.render()
+        # import time
+        # time.sleep(10)
 
 
 if __name__ == '__main__':
