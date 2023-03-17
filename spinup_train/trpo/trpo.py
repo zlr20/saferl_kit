@@ -33,10 +33,12 @@ class TRPOBuffer:
         self.ret_buf = np.zeros(size, dtype=np.float32)
         self.val_buf = np.zeros(size, dtype=np.float32)
         self.logp_buf = np.zeros(size, dtype=np.float32)
+        self.mu_buf = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
+        self.logstd_buf = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.gamma, self.lam = gamma, lam
         self.ptr, self.path_start_idx, self.max_size = 0, 0, size
 
-    def store(self, obs, act, rew, val, logp):
+    def store(self, obs, act, rew, val, logp, mu, logstd):
         """
         Append one timestep of agent-environment interaction to the buffer.
         """
@@ -46,6 +48,8 @@ class TRPOBuffer:
         self.rew_buf[self.ptr] = rew
         self.val_buf[self.ptr] = val
         self.logp_buf[self.ptr] = logp
+        self.mu_buf[self.ptr] = mu
+        self.logstd_buf[self.ptr] = logstd
         self.ptr += 1
 
     def finish_path(self, last_val=0):
@@ -92,7 +96,10 @@ class TRPOBuffer:
                     act=torch.FloatTensor(self.act_buf).to(device), 
                     ret=torch.FloatTensor(self.ret_buf).to(device),
                     adv=torch.FloatTensor(self.adv_buf).to(device), 
-                    logp=torch.FloatTensor(self.logp_buf).to(device))
+                    logp=torch.FloatTensor(self.logp_buf).to(device),
+                    mu=torch.FloatTensor(self.mu_buf).to(device),
+                    logstd=torch.FloatTensor(self.logstd_buf).to(device),
+        )
         return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in data.items()}
 
 
@@ -288,11 +295,15 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         """
         Return the sample average KL divergence between old and new policies
         """
-        obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
+        obs, act, adv, logp_old, mu_old, logstd_old = data['obs'], data['act'], data['adv'], data['logp'], data['mu'], data['logstd']
         
         # Average KL Divergence  
         pi, logp = cur_pi(obs, act)
-        average_kl = (logp_old - logp).mean()
+        # average_kl = (logp_old - logp).mean()
+        average_kl = cur_pi._d_kl(
+            torch.as_tensor(obs, dtype=torch.float32),
+            torch.as_tensor(mu_old, dtype=torch.float32),
+            torch.as_tensor(logstd_old, dtype=torch.float32), device=device)
         
         return average_kl
 
@@ -348,7 +359,8 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         s = x_hat.T @ Hx(x_hat)
         s_ep = s if s < 0. else 1 # log s negative appearence 
             
-        x_direction = np.sqrt(2 * target_kl / (np.clip(s,0.,None)+EPS)) * x_hat
+        # x_direction = np.sqrt(2 * target_kl / (np.clip(s,0.,None)+EPS)) * x_hat
+        x_direction = np.sqrt(2 * target_kl / (s+EPS)) * x_hat
         
         # copy an actor to conduct line search 
         actor_tmp = copy.deepcopy(ac.pi)
@@ -401,7 +413,7 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
-            a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
 
             next_o, r, d, info = env.step(a)
             
@@ -422,7 +434,7 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             ep_cost += c
 
             # save and log
-            buf.store(o, a, r, v, logp)
+            buf.store(o, a, r, v, logp, mu, logstd)
             logger.store(VVals=v)
             
             # Update obs (critical!)
@@ -437,7 +449,7 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     print('Warning: trajectory cut off by epoch at %d steps.'%ep_len, flush=True)
                 # if trajectory didn't reach terminal state, bootstrap value target
                 if timeout or epoch_ended:
-                    _, v, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
+                    _, v, _, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
                 else:
                     v = 0
                 buf.finish_path(v)

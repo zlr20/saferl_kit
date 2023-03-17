@@ -172,7 +172,7 @@ def configuration(task, args):
             'frameskip_binom_p': 1.0  # Probability of trial return (controls distribution)
         }
 
-    if task == "Arm_goal_0":
+    if task == "Arm6dof_goal_0":
         config = {
             'num_steps': 1000,
             'robot_base': 'xmls/arm.xml',
