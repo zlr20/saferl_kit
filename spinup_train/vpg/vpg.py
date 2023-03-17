@@ -9,7 +9,9 @@ import vpg_core as core
 from utils.logx import EpochLogger
 from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
 from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs
-from safety_gym.envs.engine import Engine
+from safety_gym.envs.engine import Engine as safety_gym_Engine
+from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
+from utils.safetygym_config import configuration
 import os.path as osp
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -337,126 +339,12 @@ def vpg(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(),  seed=0,
         logger.dump_tabular()
         
         
-"""
-configuration for customized environment for safety gym 
-"""
-def configuration(task, args):
-    if task == "Mygoal1":
-        config = {
-            'robot_base': 'xmls/point.xml', # dt in xml, default 0.002s for point
-            'task': 'goal',
-            'observation_flatten': True,  # Flatten observation into a vector
-            'observe_sensors': True,  # Observe all sensor data from simulator
-            # Sensor observations
-            # Specify which sensors to add to observation space
-            'sensors_obs': ['accelerometer', 'velocimeter', 'gyro', 'magnetometer'],
-            'sensors_hinge_joints': True,  # Observe named joint position / velocity sensors
-            'sensors_ball_joints': True,  # Observe named balljoint position / velocity sensors
-            'sensors_angle_components': True,  # Observe sin/cos theta instead of theta
-
-            #observe goal/box/...
-            'observe_goal_dist': False,  # Observe the distance to the goal
-            'observe_goal_comp': False,  # Observe a compass vector to the goal
-            'observe_goal_lidar': True,  # Observe the goal with a lidar sensor
-            'observe_box_comp': False,  # Observe the box with a compass
-            'observe_box_lidar': False,  # Observe the box with a lidar
-            'observe_circle': False,  # Observe the origin with a lidar
-            'observe_remaining': False,  # Observe the fraction of steps remaining
-            'observe_walls': False,  # Observe the walls with a lidar space
-            'observe_hazards': True,  # Observe the vector from agent to hazards
-            'observe_vases': True,  # Observe the vector from agent to vases
-            'observe_pillars': False,  # Lidar observation of pillar object positions
-            'observe_buttons': False,  # Lidar observation of button object positions
-            'observe_gremlins': False,  # Gremlins are observed with lidar-like space
-            'observe_vision': False,  # Observe vision from the robot
-
-            # Constraints - flags which can be turned on
-            # By default, no constraints are enabled, and all costs are indicator functions.
-            'constrain_hazards': True,  # Constrain robot from being in hazardous areas
-            'constrain_vases': False,  # Constrain frobot from touching objects
-            'constrain_pillars': False,  # Immovable obstacles in the environment
-            'constrain_buttons': False,  # Penalize pressing incorrect buttons
-            'constrain_gremlins': False,  # Moving objects that must be avoided
-            # cost discrete/continuous. As for AdamBA, I guess continuous cost is more suitable.
-            'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
-
-            #lidar setting
-            'lidar_max_dist': None, # Maximum distance for lidar sensitivity (if None, exponential distance)
-            'lidar_num_bins': 16,
-            #num setting
-            'hazards_num': 1,
-            'hazards_size': args.hazards_size,
-            'vases_num': 0,
-
-
-
-            # Frameskip is the number of physics simulation steps per environment step
-            # Frameskip is sampled as a binomial distribution
-            # For deterministic steps, set frameskip_binom_p = 1.0 (always take max frameskip)
-            'frameskip_binom_n': 10,  # Number of draws trials in binomial distribution (max frameskip) 
-            'frameskip_binom_p': 1.0  # Probability of trial return (controls distribution)
-        }
-
-    if task == "Mygoal4":
-        config = {
-            'robot_base': 'xmls/point.xml', # dt in xml, default 0.002s for point
-            'task': 'goal',
-            'observation_flatten': True,  # Flatten observation into a vector
-            'observe_sensors': True,  # Observe all sensor data from simulator
-            # Sensor observations
-            # Specify which sensors to add to observation space
-            'sensors_obs': ['accelerometer', 'velocimeter', 'gyro', 'magnetometer'],
-            'sensors_hinge_joints': True,  # Observe named joint position / velocity sensors
-            'sensors_ball_joints': True,  # Observe named balljoint position / velocity sensors
-            'sensors_angle_components': True,  # Observe sin/cos theta instead of theta
-
-            #observe goal/box/...
-            'observe_goal_dist': False,  # Observe the distance to the goal
-            'observe_goal_comp': False,  # Observe a compass vector to the goal
-            'observe_goal_lidar': True,  # Observe the goal with a lidar sensor
-            'observe_box_comp': False,  # Observe the box with a compass
-            'observe_box_lidar': False,  # Observe the box with a lidar
-            'observe_circle': False,  # Observe the origin with a lidar
-            'observe_remaining': False,  # Observe the fraction of steps remaining
-            'observe_walls': False,  # Observe the walls with a lidar space
-            'observe_hazards': True,  # Observe the vector from agent to hazards
-            'observe_vases': True,  # Observe the vector from agent to vases
-            'observe_pillars': False,  # Lidar observation of pillar object positions
-            'observe_buttons': False,  # Lidar observation of button object positions
-            'observe_gremlins': False,  # Gremlins are observed with lidar-like space
-            'observe_vision': False,  # Observe vision from the robot
-
-            # Constraints - flags which can be turned on
-            # By default, no constraints are enabled, and all costs are indicator functions.
-            'constrain_hazards': True,  # Constrain robot from being in hazardous areas
-            'constrain_vases': False,  # Constrain frobot from touching objects
-            'constrain_pillars': False,  # Immovable obstacles in the environment
-            'constrain_buttons': False,  # Penalize pressing incorrect buttons
-            'constrain_gremlins': False,  # Moving objects that must be avoided
-            # cost discrete/continuous. As for AdamBA, I guess continuous cost is more suitable.
-            'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
-
-            #lidar setting
-            'lidar_max_dist': None, # Maximum distance for lidar sensitivity (if None, exponential distance)
-            'lidar_num_bins': 16,
-            #num setting
-            'hazards_num': 4,
-            'hazards_size': args.hazards_size,
-            'vases_num': 0,
-
-
-
-            # Frameskip is the number of physics simulation steps per environment step
-            # Frameskip is sampled as a binomial distribution
-            # For deterministic steps, set frameskip_binom_p = 1.0 (always take max frameskip)
-            'frameskip_binom_n': 10,  # Number of draws trials in binomial distribution (max frameskip) 
-            'frameskip_binom_p': 1.0  # Probability of trial return (controls distribution)
-        }
-
-    return config
 
 def create_env(args):
-    env = Engine(configuration(args.task, args))
+    if 'Arm' in args.task:
+        env = safety_gym_arm_Engine(configuration(args.task, args))
+    else:
+        env = safety_gym_Engine(configuration(args.task, args))
     return env
 
 def setup_logger_kwargs(exp_name, seed=None, data_dir=None, datestamp=False):
@@ -527,7 +415,6 @@ def setup_logger_kwargs(exp_name, seed=None, data_dir=None, datestamp=False):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--env', type=str, default='SafetyGym')
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
     parser.add_argument('--hid', type=int, default=64)
@@ -540,7 +427,6 @@ if __name__ == '__main__':
     parser.add_argument('--delay', type=int, default=2)
     parser.add_argument('--train_v_iters', type=int, default=1000)
     parser.add_argument('--exp_name', type=str, default='vpg')
-    # parser.add_argument('--train_v_iters', type=int, default=100)
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
@@ -548,10 +434,6 @@ if __name__ == '__main__':
     # from spinup.utils.run_utils import setup_logger_kwargs
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
 
-    # vpg(lambda : create_env(args), actor_critic=core.MLPActorCritic,
-    #     ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
-    #     seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
-    #     logger_kwargs=logger_kwargs, train_v_iters=args.train_v_iters, delay=args.delay)
     vpg(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,

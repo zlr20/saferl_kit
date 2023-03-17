@@ -2,7 +2,7 @@
     <size njmax="3000" nconmax="1000"/>
     <option gravity="0 0 0" timestep="0.002"/>
     <default>
-        <joint limited="true" damping="5000" range="-60 60" />
+        <joint limited="false" damping="5000" range="-180 180" />
         <geom condim="6" size="0.032" rgba="1 0 0 0.5" type="capsule" density="0.01"/>
         <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="2000"/>
         <site size="0.05" type="sphere" rgba="0 0 1 1"/>

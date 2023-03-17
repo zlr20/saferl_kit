@@ -181,6 +181,7 @@ def configuration(task, args):
             # 'goal_locations': [(0.0,1.0)],
             'observe_goal_lidar': False,
             'compass_shape': 3,
+            'goal_size': 0.5,
             'observe_goal_comp': True,
             # 'observe_box_lidar': False,
             # 'observe_box_comp': True,
