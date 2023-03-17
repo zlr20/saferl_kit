@@ -14,7 +14,7 @@
       <camera name="vision" pos=".125 0 .2" xyaxes="0 -1 0 .4 0 1" fovy="100"/>
       <!-- <joint armature="0" damping="0" limited="false" margin="0.01" name="root" pos="0 0 0" type="free"/> -->
       <joint armature="0" axis="1 0 0" damping="0" limited="false" name="rootx" pos="0 0 0" stiffness="0" type="slide"/>
-      <joint armature="0" axis="0 0 1" damping="0" limited="false" name="rootz" pos="0 0 0" stiffness="0" type="hinge"/>
+      <joint armature="0" axis="0 0 1" damping="0" limited="false" name="rootz" pos="0 0 0" stiffness="10" type="hinge"/>
       <joint armature="0" axis="0 1 0" damping="0" limited="false" name="rooty" pos="0 0 0" stiffness="0" type="slide"/>
       
       <geom friction="0.9" fromto="0 0.2 0 0 -0.2 0" name="robot_geom" size="0.05" type="capsule"/>
@@ -77,11 +77,11 @@
         <subtreeangmom body="robot" name="subtreeangmom"/>
   </sensor>
   <actuator>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="25" joint="thigh_joint"/>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="15" joint="leg_joint"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="30" joint="thigh_joint"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="20" joint="leg_joint"/>
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="15" joint="foot_joint"/>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="25" joint="thigh_left_joint"/>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="15" joint="leg_left_joint"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="30" joint="thigh_left_joint"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="20" joint="leg_left_joint"/>
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="15" joint="foot_left_joint"/>
   </actuator>
 </mujoco>
