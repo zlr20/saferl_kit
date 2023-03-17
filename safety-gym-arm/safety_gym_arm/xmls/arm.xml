@@ -9,8 +9,9 @@
     </default>
     <worldbody>
         <geom name="floor" size="5 5 0.1" type="plane" condim="6"/>
+        <camera name="fixedfar" mode="fixed" pos="10 0 5"/>
         <body name="robot" pos="0.0 0.0 0.0">
-            <camera name="vision" pos="0 0 .15" xyaxes="0 -1 0 .4 0 1" fovy="90"/>
+            <camera name="vision" pos="0 0 .5" xyaxes="0 -1 0 .4 0 1" fovy="90"/>
             <site name="robot" pos="0 0 0" rgba="1 0 0 0"/>
             
             <body name="link_1" pos="0.0 0.0 0.3">
@@ -58,6 +59,7 @@
             
         </body>
     </worldbody>
+
     <sensor>
         <jointpos joint="joint_1" name="jointpos_joint_1"/>
         <jointpos joint="joint_2" name="jointpos_joint_2"/>

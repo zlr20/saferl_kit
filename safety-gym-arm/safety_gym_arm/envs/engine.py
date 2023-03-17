@@ -758,7 +758,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 name = f'hazard{i}'
                 geom = {'name': name,
                         'size': [self.hazards_size, 1e-2],#self.hazards_size / 2],
-                        'pos': np.r_[self.layout[name], 1e-2],#self.hazards_size / 2 + 1e-2],
+                        'pos': np.r_[self.layout[name], 2e-2],#self.hazards_size / 2 + 1e-2],
                         'rot': self.random_rot(),
                         'type': 'cylinder',
                         'contype': 0,
@@ -1042,7 +1042,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         for body_idx in range(len(self.lidar_body)):
             body = self.lidar_body[body_idx]
             if pos.shape == (2,):
-                pos = np.concatenate([pos, [0]])  # Add a zero z-coordinate
+                pos = np.concatenate([pos, [0]])  # Acamdd a zero z-coordinate
             # Get ego vector in world frame
             vec = pos - self.world.body_pos(body)
             # Rotate into frame
@@ -1600,8 +1600,11 @@ class Engine(gym.Env, gym.utils.EzPickle):
             body = self.lidar_body[body_idx]
             body_pos = self.world.body_pos(body)
             body_mat = self.world.body_mat(body)
-            
-            pos = body_pos + np.matmul(compass[body_idx,:] * 0.3, body_mat.transpose())
+            if self.compass_shape == 3:
+                compass_pos = compass[body_idx,] * 0.3
+            if self.compass_shape == 2:
+                compass_pos = np.concatenate([compass[body_idx, :2] * 0.15, [offset]])
+            pos = body_pos + np.matmul(compass_pos, body_mat.transpose())
             self.viewer.add_marker(pos=pos,
                                 size=.05 * np.ones(3),
                                 type=const.GEOM_SPHERE,
@@ -1636,6 +1639,15 @@ class Engine(gym.Env, gym.utils.EzPickle):
         if self.observe_vision and self.vision_render:
             self.viewer.draw_pixels(self.save_obs_vision, 0, 0)
 
+    def viewer_setup(self):
+        # self.viewer.cam.trackbodyid = 0         # id of the body to track ()
+        self.viewer.cam.distance = self.model.stat.extent * 1.0         # how much you "zoom in", model.stat.extent is the max limits of the arena
+        self.viewer.cam.lookat[0] = 0         # x,y,z offset from the object (works if trackbodyid=-1)
+        self.viewer.cam.lookat[1] = -3
+        self.viewer.cam.lookat[2] = 5
+        self.viewer.cam.elevation = -60           # camera rotation around the axis in the plane going through the frame origin (if 0 you just see a line)
+        self.viewer.cam.azimuth = 90              # camera rotation around the camera's vertical axis
+
     def render(self,
                mode='human', 
                camera_id=-1,
@@ -1643,10 +1655,11 @@ class Engine(gym.Env, gym.utils.EzPickle):
                height=DEFAULT_HEIGHT
                ):
         ''' Render the environment to the screen '''
-
+        
         if self.viewer is None or mode!=self._old_render_mode:
             # Set camera if specified
             if mode == 'human':
+                print('here1')
                 self.viewer = MjViewer(self.sim)
                 self.viewer.cam.fixedcamid = -1
                 self.viewer.cam.type = const.CAMERA_FREE
@@ -1656,15 +1669,19 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 self.viewer.cam.fixedcamid = camera_id #self.model.camera_name2id(mode)
                 # self.viewer.cam.type = const.CAMERA_FIXED
                 self.viewer.cam.type = const.CAMERA_FREE
+            self.viewer_setup()
             self.viewer.render_swap_callback = self.render_swap_callback
             # Turn all the geom groups on
             self.viewer.vopt.geomgroup[:] = 1
             self._old_render_mode = mode
+        # print('here2', self.viewer.cam.fixedcamid)
         self.viewer.update_sim(self.sim)
 
         if camera_id is not None:
             # Update camera if desired
             self.viewer.cam.fixedcamid = camera_id
+
+        
 
         # Lidar markers
         if self.render_lidar_markers:
