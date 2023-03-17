@@ -121,7 +121,7 @@ def run_random(env_name):
         ep_ret += reward
         a = info['cost']
         ep_cost += info.get('cost', 0)
-        env.render()
+        # env.render()
 
 
 if __name__ == '__main__':
