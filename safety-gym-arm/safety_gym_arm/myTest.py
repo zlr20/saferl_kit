@@ -10,12 +10,19 @@ from safety_gym_arm.envs.engine import Engine
 def run_random(env_name):
     # env = gym.make(env_name)
     config = {
-        'robot_base': 'xmls/humanoid.xml',
+        'robot_base': 'xmls/arm_3.xml',
+        # 'num_steps': 2000,
+        'arm_link_n': 5,
         'task': 'goal',
         'observe_goal_lidar': False,
+        # 'compass_shape': 2,
+        'goal_size': 0.3,
         'observe_goal_comp': True,
+        # 'observe_box_lidar': False,
+        # 'observe_box_comp': True,
         'observe_hazards': False,
-        'observe_hazard3Ds': False,
+        'observe_hazard3Ds': True,
+        'hazard3Ds_size': 0.5,
         'observe_vases': False,
         'constrain_hazards': True,
         'constrain_hazard3Ds': True,
@@ -23,10 +30,14 @@ def run_random(env_name):
         'lidar_max_dist': 3,
         'lidar_num_bins': 10,
         'lidar_num_bins3D': 6,
+        # 'lidar_body': ['link_1', 'link_3', 'link_5'],
         'render_lidar_radius': 0.25,
-        'hazard3Ds_num': 0,
+        'hazard3Ds_num': 1,
+        'hazard3Ds_locations':[(0.0,1.5)],
         'hazards_num': 0,
         'vases_num': 0,
+        'robot_locations':[(0.0,0.0)],
+        'robot_rot':0
     }
 
     env = Engine(config)
