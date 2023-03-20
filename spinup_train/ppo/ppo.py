@@ -14,7 +14,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
 
 
 class PPOBuffer:
@@ -315,6 +315,11 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
 
             next_o, r, d, _ = env.step(a)
+            # try:
+            #     next_o, r, d, _ = env.step(a)
+            # except:
+            #     print('the enviornment is wrong, skipping episode')
+            #     next_o, r, d = None, 0, True
             ep_ret += r
             ep_len += 1
 
@@ -369,7 +374,7 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.dump_tabular()
         
 def create_env(args):
-    if 'Arm' in args.task:
+    if 'My' not in args.task:
         env = safety_gym_arm_Engine(configuration(args.task, args))
     else:
         env = safety_gym_Engine(configuration(args.task, args))
@@ -386,15 +391,16 @@ if __name__ == '__main__':
     parser.add_argument('--target_kl', type=float, default=0.01)
     parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--cpu', type=int, default=1)
-    parser.add_argument('--steps', type=int, default=2000)
-    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--steps', type=int, default=30000)
+    parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--exp_name', type=str, default='ppo')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
     
-    logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
+    exp_name = args.task + '_' + args.exp_name
+    logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
     
     # whether to save model
     model_save = True if args.model_save else False

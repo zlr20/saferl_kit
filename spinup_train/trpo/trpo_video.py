@@ -20,7 +20,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def create_env(args):
-    if 'Arm' in args.task:
+    if 'My' not in args.task:
         env = safety_gym_arm_Engine(configuration(args.task, args))
     else:
         env = safety_gym_Engine(configuration(args.task, args))
@@ -63,7 +63,7 @@ def replay(env_fn, model_path=None, video_name=None, max_epoch=1):
             o = env.reset()
         
         try:
-            a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, logp, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
         except:
             print('please choose the correct environment, the observation space doesn''t match')
             raise NotImplementedError
