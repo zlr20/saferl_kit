@@ -14,7 +14,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
 
 class PPOBuffer:
@@ -403,7 +403,8 @@ if __name__ == '__main__':
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
     
     # whether to save model
-    model_save = True if args.model_save else False
+    # model_save = True if args.model_save else False
+    model_save = True
 
     ppo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 

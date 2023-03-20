@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class TRPOBuffer:
@@ -514,7 +514,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--exp_name', type=str, default='trpo')
     parser.add_argument('--model_save', action='store_true')
-    parser.add_argument('--target_kl', type=float, default=0.01)
+    parser.add_argument('--target_kl', type=float, default=0.02)
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi

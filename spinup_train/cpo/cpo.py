@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class CPOBuffer:
@@ -628,7 +628,7 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
         
 def create_env(args):
-    if 'Arm' in args.task:
+    if 'My' not in args.task:
         env = safety_gym_arm_Engine(configuration(args.task, args))
     else:
         env = safety_gym_Engine(configuration(args.task, args))
