@@ -311,8 +311,8 @@ def configuration(task, args):
             # Frameskip is the number of physics simulation steps per environment step
             # Frameskip is sampled as a binomial distribution
             # For deterministic steps, set frameskip_binom_p = 1.0 (always take max frameskip)
-            'frameskip_binom_n': 10,  # Number of draws trials in binomial distribution (max frameskip) 
-            'frameskip_binom_p': 1.0  # Probability of trial return (controls distribution)
+            # 'frameskip_binom_n': 10,  # Number of draws trials in binomial distribution (max frameskip) 
+            # 'frameskip_binom_p': 1.0  # Probability of trial return (controls distribution)
         }
 
     if task == 'Swimmer_goal_0':
