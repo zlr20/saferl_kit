@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class CPOBuffer:
@@ -172,9 +172,10 @@ def auto_hession_x(objective, net, x):
     return auto_grad(torch.dot(jacob, x), net, to_numpy=True)
 
 def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
-        steps_per_epoch=4000, epochs=50, gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
+        steps_per_epoch=4000, epochs=50, gamma=0.99, pi_lr=3e-4,
         vf_lr=1e-3, vcf_lr=1e-3, train_v_iters=80, train_vc_iters=80, lam=0.97, max_ep_len=1000,
-        target_kl=0.01, target_cost = 1.5, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100, model_save=False):
+        target_kl=0.01, target_cost = 1.5, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, 
+        backtrack_iters=100, model_save=False, cost_reduction=0):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -243,13 +244,6 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             number of policy updates) to perform.
 
         gamma (float): Discount factor. (Always between 0 and 1.)
-
-        clip_ratio (float): Hyperparameter for clipping in the policy objective.
-            Roughly: how far can the new policy go from the old policy while 
-            still profiting (improving the objective function)? The new policy 
-            can still go farther than the clip_ratio says, but it doesn't help
-            on the objective anymore. (Usually small, 0.1 to 0.3.) Typically
-            denoted by :math:`\epsilon`. 
 
         pi_lr (float): Learning rate for policy optimizer.
 
@@ -510,7 +504,8 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             
             if (kl.item() <= target_kl and
                 (pi_l_new.item() <= pi_l_old if optim_case > 1 else True) and # if current policy is feasible (optim>1), must preserve pi loss
-                surr_cost_new - surr_cost_old <= max(-c,0)):
+                # surr_cost_new - surr_cost_old <= max(-c,0)):
+                surr_cost_new - surr_cost_old <= max(-c,-cost_reduction)):
                 
                 print(colorize(f'Accepting new params at step %d of line search.'%j, 'green', bold=False))
                 
@@ -559,7 +554,13 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         for t in range(local_steps_per_epoch):
             a, v, vc, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
 
-            next_o, r, d, info = env.step(a)
+            try: 
+                next_o, r, d, info = env.step(a)
+                assert 'cost' in info.keys()
+            except: 
+                # simulation exception discovered, discard this episode 
+                next_o, r, d = o, 0, True # observation will not change, no reward when episode done 
+                info['cost'] = 0 # no cost when episode done     
             # Track cumulative cost over training
             cum_cost += info['cost']
             ep_ret += r
@@ -637,11 +638,11 @@ def create_env(args):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()    
-    parser.add_argument('--env', type=str, default='SafetyGym')
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
     parser.add_argument('--target_cost', type=float, default=0.1) # the cost limit for the environment
-    parser.add_argument('--target_kl', type=float, default=0.02) # the cost limit for the environment
+    parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for CPO
+    parser.add_argument('--cost_reduction', type=float, default=0.) # the cost_reduction limit when current policy is infeasible
     parser.add_argument('--hid', type=int, default=64)
     parser.add_argument('--l', type=int, default=2)
     parser.add_argument('--gamma', type=float, default=0.99)
@@ -655,7 +656,10 @@ if __name__ == '__main__':
 
     mpi_fork(args.cpu)  # run parallel code with mpi
     
-    exp_name = args.task + '_' + args.exp_name + '_' + 'kl' + str(args.target_kl)
+    exp_name = args.task + '_' + args.exp_name \
+                + '_' + 'kl' + str(args.target_kl) \
+                + '_' + 'costreduce' + str(args.cost_reduction) \
+                + '_' + 'hid' + str(args.hid)
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model
@@ -665,4 +669,5 @@ if __name__ == '__main__':
     cpo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
-        logger_kwargs=logger_kwargs, target_cost=args.target_cost, model_save=model_save, target_kl=args.target_kl)
+        logger_kwargs=logger_kwargs, target_cost=args.target_cost, 
+        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction)
