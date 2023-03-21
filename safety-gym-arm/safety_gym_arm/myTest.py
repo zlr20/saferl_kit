@@ -10,7 +10,7 @@ from safety_gym_arm.envs.engine import Engine
 def run_random(env_name):
     # env = gym.make(env_name)
     config = {
-        'robot_base': 'xmls/ant_tiny.xml',
+        'robot_base': 'xmls/hopper3d.xml',
         # 'num_steps': 2000,
         'arm_link_n': 5,
         'task': 'goal',
@@ -34,10 +34,12 @@ def run_random(env_name):
         'render_lidar_radius': 0.25,
         'hazard3Ds_num': 1,
         'hazard3Ds_locations':[(0.0,1.5)],
-        'hazards_num': 0,
+        'hazards_num': 8,
         'vases_num': 0,
         'robot_locations':[(0.0,0.0)],
-        'robot_rot':0
+        'robot_rot':0,
+        'constrain_indicator':False,
+        'hazards_cost':1.0,
     }
 
     env = Engine(config)
@@ -112,8 +114,9 @@ def run_random(env_name):
         # print('reward', reward)
         ep_ret += reward
         a = info['cost']
+        # print(info.get('cost', 0))
         ep_cost += info.get('cost', 0)
-        # env.render()
+        env.render()
 
 
 if __name__ == '__main__':
