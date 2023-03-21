@@ -20,7 +20,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def create_env(args):
-    if 'Arm' in args.task:
+    if 'My' not in args.task:
         env = safety_gym_arm_Engine(configuration(args.task, args))
     else:
         env = safety_gym_Engine(configuration(args.task, args))

@@ -14,8 +14,6 @@ def run_random(env_name):
         # 'num_steps': 2000,
         'arm_link_n': 5,
         'task': 'goal',
-        # 'goal_3D': True,
-        # 'goal_locations': [(0.0,-1.0)],
         'observe_goal_lidar': False,
         # 'compass_shape': 2,
         'goal_size': 0.3,
@@ -28,20 +26,7 @@ def run_random(env_name):
         'observe_vases': False,
         'constrain_hazards': True,
         'constrain_hazard3Ds': True,
-        'observation_flatten': False,
-        # 'continue_goal': True,
-        # 'sensors_obs': ['accelerometer_link_1', 'velocimeter_link_1', 'gyro_link_1', 'magnetometer_link_1',
-        #                 'accelerometer_link_2', 'velocimeter_link_2', 'gyro_link_2', 'magnetometer_link_2',
-        #                 'accelerometer_link_3', 'velocimeter_link_3', 'gyro_link_3', 'magnetometer_link_3',
-        #                 'accelerometer_link_4', 'velocimeter_link_4', 'gyro_link_4', 'magnetometer_link_4',
-        #                 'accelerometer_link_5', 'velocimeter_link_5', 'gyro_link_5', 'magnetometer_link_5',
-        #                 'accelerometer_link_6', 'velocimeter_link_6', 'gyro_link_6', 'magnetometer_link_6'],
-
-        # 'sensors_obs': ['accelerometer_link_1', 'velocimeter_link_1', 'gyro_link_1', 'magnetometer_link_1',
-        #                 'accelerometer_link_2', 'velocimeter_link_2', 'gyro_link_2', 'magnetometer_link_2',
-        #                 'accelerometer_link_3', 'velocimeter_link_3', 'gyro_link_3', 'magnetometer_link_3',
-        #                 'accelerometer_link_4', 'velocimeter_link_4', 'gyro_link_4', 'magnetometer_link_4',
-        #                 'accelerometer_link_5', 'velocimeter_link_5', 'gyro_link_5', 'magnetometer_link_5',],
+        'observation_flatten': True,
         'lidar_max_dist': 3,
         'lidar_num_bins': 10,
         'lidar_num_bins3D': 6,
@@ -128,7 +113,7 @@ def run_random(env_name):
         ep_ret += reward
         a = info['cost']
         ep_cost += info.get('cost', 0)
-        env.render()
+        # env.render()
 
 
 if __name__ == '__main__':

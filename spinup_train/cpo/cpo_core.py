@@ -118,7 +118,7 @@ class MLPGaussianActor(Actor):
         mu = self.mu_net(obs.to(device))
         log_std = self.log_std 
         
-        d_kl = diagonal_gaussian_kl(mu, log_std, old_mu.to(device), old_log_std.to(device))
+        d_kl = diagonal_gaussian_kl(old_mu.to(device), old_log_std.to(device), mu, log_std)
         return d_kl
 
 
@@ -139,7 +139,7 @@ class MLPActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, 
                  hidden_sizes=(64,64), activation=nn.Tanh):
         super().__init__()
-        self.device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
 
         obs_dim = observation_space.shape[0]
 

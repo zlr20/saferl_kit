@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class CPOBuffer:
@@ -508,7 +508,6 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             except:
                 import ipdb; ipdb.set_trace()
             
-            # if (kl.item() <= target_kl and pi_l_new.item() <= pi_l_old):
             if (kl.item() <= target_kl and
                 (pi_l_new.item() <= pi_l_old if optim_case > 1 else True) and # if current policy is feasible (optim>1), must preserve pi loss
                 surr_cost_new - surr_cost_old <= max(-c,0)):
@@ -629,7 +628,7 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
         
 def create_env(args):
-    if 'Arm' in args.task:
+    if 'My' not in args.task:
         env = safety_gym_arm_Engine(configuration(args.task, args))
     else:
         env = safety_gym_Engine(configuration(args.task, args))
@@ -641,26 +640,29 @@ if __name__ == '__main__':
     parser.add_argument('--env', type=str, default='SafetyGym')
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
-    parser.add_argument('--target_cost', type=float, default=1) # the cost limit for the environment
+    parser.add_argument('--target_cost', type=float, default=0.1) # the cost limit for the environment
+    parser.add_argument('--target_kl', type=float, default=0.02) # the cost limit for the environment
     parser.add_argument('--hid', type=int, default=64)
     parser.add_argument('--l', type=int, default=2)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--cpu', type=int, default=1)
-    parser.add_argument('--steps', type=int, default=2000)
-    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--steps', type=int, default=30000)
+    parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--exp_name', type=str, default='cpo')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
     
-    logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
-    
+    exp_name = args.task + '_' + args.exp_name + '_' + 'kl' + str(args.target_kl)
+    logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
+
     # whether to save model
-    model_save = True if args.model_save else False
+    # model_save = True if args.model_save else False
+    model_save = True
 
     cpo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
-        logger_kwargs=logger_kwargs, target_cost=args.target_cost, model_save=model_save)
+        logger_kwargs=logger_kwargs, target_cost=args.target_cost, model_save=model_save, target_kl=args.target_kl)

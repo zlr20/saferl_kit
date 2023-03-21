@@ -98,7 +98,6 @@ def get_datasets(logdir, condition=None):
             exp_data.insert(len(exp_data.columns),'Condition1',condition1)
             exp_data.insert(len(exp_data.columns),'Condition2',condition2)
             exp_data.insert(len(exp_data.columns),'Reward_Performance',exp_data[reward_performance])
-            # import ipdb; ipdb.set_trace()
             # if exp_data[cost_performance]:
             if cost_performance in exp_data:
                 exp_data.insert(len(exp_data.columns),'Cost_Performance',exp_data[cost_performance])
@@ -175,7 +174,6 @@ def make_plots(all_logdirs, legend=None, xaxis=None, values=None, count=False,
     
     condition = 'Condition2' if count else 'Condition1'
     estimator = getattr(np, estimator)      # choose what to show on main curve: mean? max? min?
-    # import ipdb; ipdb.set_trace()
     for value in values:
         subdir = title + '/'
         plt.figure()

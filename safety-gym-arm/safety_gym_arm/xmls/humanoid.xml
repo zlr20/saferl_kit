@@ -18,7 +18,7 @@
             <camera name="vision" pos=".125 0 .2" xyaxes="0 -1 0 .4 0 1" fovy="100"/>
             <!-- <joint armature="0" damping="0" limited="false" name="root" pos="0 0 0" stiffness="0" type="free"/> -->
             <joint armature="0" axis="1 0 0" damping="0" limited="false" name="rootx" pos="0 0 0" stiffness="0" type="slide"/>
-            <joint armature="1" axis="0 0 1" damping="0" limited="false" name="rootz" pos="0 0 0" stiffness="10" type="hinge"/>
+            <joint armature="10" axis="0 0 1" damping="0" limited="false" name="rootz" pos="0 0 0" stiffness="5" type="hinge"/>
             <joint armature="0" axis="0 1 0" damping="0" limited="false" name="rooty" pos="0 0 0" stiffness="0" type="slide"/>
             <geom fromto="0 -.07 0 0 .07 0" name="robot1" size="0.07" type="capsule"/>
             <geom name="head" pos="0 0 .19" size=".09" type="sphere" user="258"/>
