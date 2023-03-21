@@ -314,6 +314,54 @@ def configuration(task, args):
             # 'frameskip_binom_n': 10,  # Number of draws trials in binomial distribution (max frameskip) 
             # 'frameskip_binom_p': 1.0  # Probability of trial return (controls distribution)
         }
+        
+    if task == 'AntTiny_goal_8':
+        config = {
+            'robot_base': 'xmls/ant_tiny.xml',
+            'task': 'goal',
+            
+            # observation options 
+            'observe_goal_lidar': False,
+            'observe_goal_comp': True,
+            'observe_hazards': False,
+            'observe_hazard3Ds': False,
+            'observe_vases': False,
+            'constrain_hazards': True,
+            'constrain_hazard3Ds': True,
+            'observation_flatten': True,
+            
+
+            #observe goal/box/...
+            'observe_hazards': True,  # Observe the vector from agent to hazards
+            'observe_vases': True,  # Observe the vector from agent to vases
+            'observe_pillars': False,  # Lidar observation of pillar object positions
+            'observe_buttons': False,  # Lidar observation of button object positions
+            'observe_gremlins': False,  # Gremlins are observed with lidar-like space
+            'observe_vision': False,  # Observe vision from the robot
+
+            # Constraints - flags which can be turned on
+            # By default, no constraints are enabled, and all costs are indicator functions.
+            'constrain_hazards': True,  # Constrain robot from being in hazardous areas
+            'constrain_vases': False,  # Constrain frobot from touching objects
+            'constrain_pillars': False,  # Immovable obstacles in the environment
+            'constrain_buttons': False,  # Penalize pressing incorrect buttons
+            'constrain_gremlins': False,  # Moving objects that must be avoided
+            # cost discrete/continuous. As for AdamBA, I guess continuous cost is more suitable.
+            'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
+
+            #lidar setting
+            'lidar_max_dist': None, # Maximum distance for lidar sensitivity (if None, exponential distance)
+            'lidar_num_bins': 16,
+            
+            'lidar_num_bins3D': 1,
+            'render_lidar_radius': 0.25,
+            'hazard3Ds_num': 0,
+            
+            #num setting
+            'hazards_num': 8,
+            'hazards_size': 0.30,
+            'vases_num': 0,
+        }
 
     if task == 'Swimmer_goal_0':
         config = {
@@ -382,12 +430,6 @@ def configuration(task, args):
             'hazards_num': 8,
             'hazards_size': 0.30,
             'vases_num': 0,
-
-            # # Frameskip is the number of physics simulation steps per environment step
-            # # Frameskip is sampled as a binomial distribution
-            # # For deterministic steps, set frameskip_binom_p = 1.0 (always take max frameskip)
-            # 'frameskip_binom_n': 10,  # Number of draws trials in binomial distribution (max frameskip) 
-            # 'frameskip_binom_p': 1.0  # Probability of trial return (controls distribution)
         }
 
     if task == 'Walker_goal_0':
@@ -408,6 +450,55 @@ def configuration(task, args):
             'render_lidar_radius': 0.25,
             'hazard3Ds_num': 0,
             'hazards_num': 0,
+            'vases_num': 0,
+        }
+        
+        
+    if task == 'Walker_goal_8':
+        config = {
+            'robot_base': 'xmls/walker3d.xml',
+            'task': 'goal',
+            
+            # observation options 
+            'observe_goal_lidar': False,
+            'observe_goal_comp': True,
+            'observe_hazards': False,
+            'observe_hazard3Ds': False,
+            'observe_vases': False,
+            'constrain_hazards': True,
+            'constrain_hazard3Ds': True,
+            'observation_flatten': True,
+            
+
+            #observe goal/box/...
+            'observe_hazards': True,  # Observe the vector from agent to hazards
+            'observe_vases': True,  # Observe the vector from agent to vases
+            'observe_pillars': False,  # Lidar observation of pillar object positions
+            'observe_buttons': False,  # Lidar observation of button object positions
+            'observe_gremlins': False,  # Gremlins are observed with lidar-like space
+            'observe_vision': False,  # Observe vision from the robot
+
+            # Constraints - flags which can be turned on
+            # By default, no constraints are enabled, and all costs are indicator functions.
+            'constrain_hazards': True,  # Constrain robot from being in hazardous areas
+            'constrain_vases': False,  # Constrain frobot from touching objects
+            'constrain_pillars': False,  # Immovable obstacles in the environment
+            'constrain_buttons': False,  # Penalize pressing incorrect buttons
+            'constrain_gremlins': False,  # Moving objects that must be avoided
+            # cost discrete/continuous. As for AdamBA, I guess continuous cost is more suitable.
+            'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
+
+            #lidar setting
+            'lidar_max_dist': None, # Maximum distance for lidar sensitivity (if None, exponential distance)
+            'lidar_num_bins': 16,
+            
+            'lidar_num_bins3D': 1,
+            'render_lidar_radius': 0.25,
+            'hazard3Ds_num': 0,
+            
+            #num setting
+            'hazards_num': 8,
+            'hazards_size': 0.30,
             'vases_num': 0,
         }
 
@@ -431,4 +522,54 @@ def configuration(task, args):
             'hazards_num': 0,
             'vases_num': 0,
         }
+        
+        
+    if task == 'Humanoid_goal_8':
+        config = {
+            'robot_base': 'xmls/humanoid.xml',
+            'task': 'goal',
+            
+            # observation options 
+            'observe_goal_lidar': False,
+            'observe_goal_comp': True,
+            'observe_hazards': False,
+            'observe_hazard3Ds': False,
+            'observe_vases': False,
+            'constrain_hazards': True,
+            'constrain_hazard3Ds': True,
+            'observation_flatten': True,
+            
+
+            #observe goal/box/...
+            'observe_hazards': True,  # Observe the vector from agent to hazards
+            'observe_vases': True,  # Observe the vector from agent to vases
+            'observe_pillars': False,  # Lidar observation of pillar object positions
+            'observe_buttons': False,  # Lidar observation of button object positions
+            'observe_gremlins': False,  # Gremlins are observed with lidar-like space
+            'observe_vision': False,  # Observe vision from the robot
+
+            # Constraints - flags which can be turned on
+            # By default, no constraints are enabled, and all costs are indicator functions.
+            'constrain_hazards': True,  # Constrain robot from being in hazardous areas
+            'constrain_vases': False,  # Constrain frobot from touching objects
+            'constrain_pillars': False,  # Immovable obstacles in the environment
+            'constrain_buttons': False,  # Penalize pressing incorrect buttons
+            'constrain_gremlins': False,  # Moving objects that must be avoided
+            # cost discrete/continuous. As for AdamBA, I guess continuous cost is more suitable.
+            'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
+
+            #lidar setting
+            'lidar_max_dist': None, # Maximum distance for lidar sensitivity (if None, exponential distance)
+            'lidar_num_bins': 16,
+            
+            'lidar_num_bins3D': 1,
+            'render_lidar_radius': 0.25,
+            'hazard3Ds_num': 0,
+            
+            #num setting
+            'hazards_num': 8,
+            'hazards_size': 0.30,
+            'vases_num': 0,
+        }
+        
     return config
