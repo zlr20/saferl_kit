@@ -10,7 +10,7 @@ from safety_gym_arm.envs.engine import Engine
 def run_random(env_name):
     # env = gym.make(env_name)
     config = {
-        'robot_base': 'xmls/arm_3.xml',
+        'robot_base': 'xmls/ant_tiny.xml',
         # 'num_steps': 2000,
         'arm_link_n': 5,
         'task': 'goal',
