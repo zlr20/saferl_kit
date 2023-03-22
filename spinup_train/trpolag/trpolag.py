@@ -6,7 +6,7 @@ from torch.optim import Adam
 import gym
 import time
 import copy
-import trpo_core as core
+import trpolag_core as core
 from utils.logx import EpochLogger, setup_logger_kwargs, colorize
 from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
 from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs, mpi_sum
@@ -18,7 +18,7 @@ import os.path as osp
 device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
-class TRPOBuffer:
+class TRPOLAGBuffer:
     """
     A buffer for storing trajectories experienced by a PPO agent interacting
     with the environment, and using Generalized Advantage Estimation (GAE-Lambda)
@@ -152,7 +152,7 @@ def auto_hession_x(objective, net, x):
     
     return auto_grad(torch.dot(jacob, x), net, to_numpy=True)
 
-def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
+def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
         steps_per_epoch=4000, epochs=50, gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
         vf_lr=1e-3, train_pi_iters=80, train_v_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100, model_save=False):
@@ -288,7 +288,7 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Set up experience buffer
     local_steps_per_epoch = int(steps_per_epoch / num_procs())
-    buf = TRPOBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
+    buf = TRPOLAGBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
 
 
     def compute_kl_pi(data, cur_pi):
@@ -310,7 +310,7 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     def compute_loss_pi(data, cur_pi):
         """
-        The reward objective for TRPO (TRPO policy loss)
+        The reward objective for TRPOLAG (TRPOLAG policy loss)
         """
         obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
         
@@ -348,7 +348,7 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         v_l_old = compute_loss_v(data).item()
 
 
-        # TRPO policy update core impelmentation 
+        # TRPOLAG policy update core impelmentation 
         loss_pi, pi_info = compute_loss_pi(data, ac.pi)
         g = auto_grad(loss_pi, ac.pi) # get the flatten gradient evaluted at pi old 
         kl_div = compute_kl_pi(data, ac.pi)
@@ -413,18 +413,6 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
             a, v, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
-
-            # next_o, r, d, info = env.step(a)
-            
-            # # Include penalty on cost
-            # try:
-            #     c = info['cost']
-            # except:
-            #     if 'cost_exception' in info.keys():
-            #         c = 0. # this means the simulator will end early 
-            #     else:
-            #         print(colorize(f'the cost is not defined, this is the info contents: {info}', 'red', bold=False))
-            #         exit()
                     
             try: 
                 next_o, r, d, info = env.step(a)
@@ -473,7 +461,7 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         if ((epoch % save_freq == 0) or (epoch == epochs-1)) and model_save:
             logger.save_state({'env': env}, None)
 
-        # Perform TRPO update!
+        # Perform TRPOLAG update!
         update()
         
         #=====================================================================#
@@ -522,7 +510,7 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--max_ep_len', type=int, default=1000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='trpo')
+    parser.add_argument('--exp_name', type=str, default='trpolag')
     parser.add_argument('--model_save', action='store_true')
     parser.add_argument('--target_kl', type=float, default=0.02)
     args = parser.parse_args()
@@ -536,7 +524,7 @@ if __name__ == '__main__':
     # model_save = True if args.model_save else False
     model_save = True
 
-    trpo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
+    trpolag(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs, model_save=model_save, target_kl=args.target_kl, max_ep_len=args.max_ep_len)
