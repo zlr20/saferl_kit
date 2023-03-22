@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class TRPOBuffer:
@@ -433,14 +433,13 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 # simulation exception discovered, discard this episode 
                 next_o, r, d = o, 0, True # observation will not change, no reward when episode done 
                 info['cost'] = 0 # no cost when episode done 
-                c = info['cost']   
             
             # Track cumulative cost over training
-            cum_cost += c
+            cum_cost += info['cost']
             
             ep_ret += r
             ep_len += 1
-            ep_cost += c
+            ep_cost += info['cost']
 
             # save and log
             buf.store(o, a, r, v, logp, mu, logstd)
@@ -463,8 +462,7 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     v = 0
                 buf.finish_path(v)
                 if terminal:
-                    # only save EpRet / EpLen if trajectory finished
-                    # logger.store(EpRet=ep_ret, EpLen=ep_len)
+                    # only save EpRet / EpLen / EpCost if trajectory finished
                     logger.store(EpRet=ep_ret, EpLen=ep_len, EpCost=ep_cost)
                 o, ep_ret, ep_len = env.reset(), 0, 0
                 ep_cost = 0 # episode cost is zero 
