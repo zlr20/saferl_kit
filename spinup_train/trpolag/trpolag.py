@@ -349,14 +349,27 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         """
         The reward objective for TRPOLAG (TRPOLAG policy loss)
         """
-        obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
+        obs, act, adv, adc, logp_old = data['obs'], data['act'], data['adv'], data['adc'], data['logp']
         
-        # Policy loss 
+        # reward loss 
         pi, logp = cur_pi(obs, act)
         ratio = torch.exp(logp - logp_old)
         loss_pi_reward = -(ratio * adv).mean()
-        loss_pi_cost = ac.lam * compute_cost_diff_pi(data, cur_pi)
-        loss_pi = loss_pi_reward + loss_pi_cost
+        
+        # lagrangian loss
+        # get the Episode cost
+        # Surrogate cost function 
+        surr_cost = (ratio * adc).mean()
+        EpLen = logger.get_stats('EpLen')[0]
+        EpCost = logger.get_stats('EpCost')[0]
+        c = EpCost - target_cost 
+        rescale  = EpLen
+        c /= (rescale + EPS)
+        loss_pi_cost = c + surr_cost
+        lag_term = ac.lam * loss_pi_cost
+        
+        # total policy loss
+        loss_pi = loss_pi_reward + lag_term
         
         # Useful extra info
         approx_kl = (logp_old - logp).mean().item()
