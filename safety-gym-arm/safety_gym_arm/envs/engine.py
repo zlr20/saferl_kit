@@ -607,6 +607,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 xy = self.draw_placement(placements, keepout)
                 if name == 'goal' and self.goal_3D == True and np.sqrt(np.sum(np.square(xy))) > 1.5:
                     continue
+                if 'arm' in self.robot_base and 'hazard3D' in name and np.sqrt(np.sum(np.square(xy))) > 1.0:
+                    continue
                 if placement_is_valid(xy, layout):
                     conflicted = False
                     break
