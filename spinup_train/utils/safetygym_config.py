@@ -239,6 +239,40 @@ def configuration(task, args):
             'robot_locations':[(0.0,0.0)],
             'robot_rot':0
         }
+        
+    if task == 'Arm3dof_goal_2':
+        config = {
+            'robot_base': 'xmls/arm_3.xml',
+            'arm_link_n': 5,
+            'task': 'goal',
+            'goal_3D': True,
+            'observe_goal_lidar': False,
+            'compass_shape': 3,
+            'goal_size': 0.5,
+            'hazard3Ds_size': 0.3,
+            'observe_goal_comp': True,
+            # 'observe_box_lidar': False,
+            # 'observe_box_comp': True,
+            'observe_hazard3Ds': True,
+            'observe_vases': False,
+            'constrain_hazards': False,
+            'constrain_hazard3Ds': True,
+            'observation_flatten': True,
+            'sensors_obs': ['accelerometer_link_1', 'velocimeter_link_1', 'gyro_link_1', 'magnetometer_link_1',
+                            'accelerometer_link_2', 'velocimeter_link_2', 'gyro_link_2', 'magnetometer_link_2',
+                            'accelerometer_link_3', 'velocimeter_link_3', 'gyro_link_3', 'magnetometer_link_3',
+                            'accelerometer_link_4', 'velocimeter_link_4', 'gyro_link_4', 'magnetometer_link_4',
+                            'accelerometer_link_5', 'velocimeter_link_5', 'gyro_link_5', 'magnetometer_link_5',],
+            'lidar_max_dist': 3,
+            'lidar_num_bins': 10,
+            'lidar_num_bins3D': 6,
+            'lidar_body': ['link_1', 'link_3', 'link_5'],
+            'render_lidar_radius': 0.25,
+            'hazard3Ds_num': 2,
+            'vases_num': 0,
+            'robot_locations':[(0.0,0.0)],
+            'robot_rot':0
+        }
             
     if task == 'Ant_goal_0':
         config = {

@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class TRPOLAGBuffer:
@@ -175,7 +175,7 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=50, gamma=0.99, pi_lr=3e-4,
         vf_lr=1e-3, vcf_lr=1e-3, train_v_iters=80, train_vc_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, target_cost = 1.5, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, 
-        backtrack_iters=100, model_save=False, lam_lr=3e-4):
+        backtrack_iters=100, model_save=False, lam_lr=1e-2):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -319,32 +319,7 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             torch.as_tensor(logstd_old, dtype=torch.float32), device=device)
         
         return average_kl
-    
-    def compute_cost_diff_pi(data, cur_pi):
-        """
-        Return the (new cost - cost limit) for current policy
-        """
-        obs, act, adc, logp_old = data['obs'], data['act'], data['adc'], data['logp']
-        
-        # Surrogate cost function 
-        pi, logp = cur_pi(obs, act)
-        ratio = torch.exp(logp - logp_old)
-        surr_cost = (ratio * adc).mean()
-        
-        # get the Episoe cost
-        EpLen = logger.get_stats('EpLen')[0]
-        EpCost = logger.get_stats('EpCost')[0]
-        c = EpCost - target_cost 
-        rescale  = EpLen
-        c /= (rescale + EPS)
-        
-        # ! this cost diff definition follows the practical implementation from CPO 
-        # ! need double check if the performance is not good
-        cost_diff = c + surr_cost
-        
-        return cost_diff
-        
-        
+            
     def compute_loss_pi(data, cur_pi):
         """
         The reward objective for TRPOLAG (TRPOLAG policy loss)
@@ -360,13 +335,15 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # get the Episode cost
         # Surrogate cost function 
         surr_cost = (ratio * adc).mean()
-        EpLen = logger.get_stats('EpLen')[0]
-        EpCost = logger.get_stats('EpCost')[0]
-        c = EpCost - target_cost 
-        rescale  = EpLen
-        c /= (rescale + EPS)
-        loss_pi_cost = c + surr_cost
-        lag_term = ac.lam * loss_pi_cost
+        # EpLen = logger.get_stats('EpLen')[0]
+        # EpCost = logger.get_stats('EpCost')[0]
+        # c = EpCost - target_cost 
+        # rescale  = EpLen
+        # c /= (rescale + EPS)
+        # loss_pi_cost = c + surr_cost
+        # lag_term = ac.lam * loss_pi_cost
+        
+        lag_term = ac.lmd * surr_cost
         
         # total policy loss
         loss_pi = loss_pi_reward + lag_term
@@ -446,7 +423,12 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 print(colorize(f'Line search failed! Keeping old params.', 'yellow', bold=False))
                 
         # update lambda (the Lagrangian multiplier)
-        ac.lam = max(0, ac.lam + lam_lr * compute_cost_diff_pi(data, ac.pi))
+        def get_cost_violation():
+            EpCost = logger.get_stats('EpCost')[0]
+            c = EpCost - target_cost 
+            return c
+        # import ipdb; ipdb.set_trace()
+        ac.lmd = max(0, ac.lmd + lam_lr * get_cost_violation())
         
         # Value function learning
         for i in range(train_v_iters):
@@ -473,7 +455,13 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Prepare for interaction with environment
     start_time = time.time()
-    o, ep_ret, ep_len = env.reset(), 0, 0
+    # o, ep_ret, ep_len = env.reset(), 0, 0
+    while True:
+        try:
+            o, ep_ret, ep_len = env.reset(), 0, 0
+            break
+        except:
+            print('reset environment is wrong, try next reset')
     ep_cost_ret, ep_cost = 0, 0
     cum_cost = 0
 
@@ -520,7 +508,13 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 if terminal:
                     # only save EpRet / EpLen / EpCostRet if trajectory finished
                     logger.store(EpRet=ep_ret, EpLen=ep_len, EpCost=ep_cost)
-                o, ep_ret, ep_len = env.reset(), 0, 0
+                 # o, ep_ret, ep_len = env.reset(), 0, 0
+                while True:
+                    try:
+                        o, ep_ret, ep_len = env.reset(), 0, 0
+                        break
+                    except:
+                        print('reset environment is wrong, try next reset')
                 ep_cost_ret, ep_cost = 0, 0
 
         # Save model
@@ -567,8 +561,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()    
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
-    parser.add_argument('--target_cost', type=float, default=0.) # the cost limit for the environment
+    parser.add_argument('--target_cost', type=float, default=0.1) # the cost limit for the environment
     parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for TRPOLAG
+    parser.add_argument('--lam_lr', type=float, default=0.001) # the learning rate for lambda
     parser.add_argument('--hid', type=int, default=64)
     parser.add_argument('--l', type=int, default=2)
     parser.add_argument('--gamma', type=float, default=0.99)
@@ -583,8 +578,8 @@ if __name__ == '__main__':
     mpi_fork(args.cpu)  # run parallel code with mpi
     
     exp_name = args.task + '_' + args.exp_name \
-                + '_' + 'kl' + str(args.target_kl) \
-                + '_' + 'target_cost' + str(args.target_cost) 
+                + '_' + 'target_cost' + str(args.target_cost) \
+                + '_' + 'lam_lr' + str(args.lam_lr)
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model
@@ -595,4 +590,4 @@ if __name__ == '__main__':
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs, target_cost=args.target_cost, 
-        model_save=model_save, target_kl=args.target_kl)
+        model_save=model_save, target_kl=args.target_kl, lam_lr = args.lam_lr)
