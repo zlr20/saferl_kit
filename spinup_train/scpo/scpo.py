@@ -6,7 +6,7 @@ from torch.optim import Adam
 import gym
 import time
 import copy
-import trpofac_core as core
+import scpo_core as core
 from utils.logx import EpochLogger, setup_logger_kwargs, colorize
 from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
 from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs, mpi_sum
@@ -15,10 +15,10 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
-class TRPOFACBuffer:
+class SCPOBuffer:
     """
     A buffer for storing trajectories experienced by a PPO agent interacting
     with the environment, and using Generalized Advantage Estimation (GAE-Lambda)
@@ -171,11 +171,11 @@ def auto_hession_x(objective, net, x):
     
     return auto_grad(torch.dot(jacob, x), net, to_numpy=True)
 
-def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
-        steps_per_epoch=4000, epochs=50, gamma=0.99,
+def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
+        steps_per_epoch=4000, epochs=50, gamma=0.99, pi_lr=3e-4,
         vf_lr=1e-3, vcf_lr=1e-3, train_v_iters=80, train_vc_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, target_cost = 1.5, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, 
-        backtrack_iters=100, model_save=False, lam_lr=1e-5):
+        backtrack_iters=100, model_save=False, cost_reduction=0):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -291,7 +291,7 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Create actor-critic module
     ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs).to(device)
-    
+
     # Sync params across processes
     sync_params(ac)
 
@@ -301,9 +301,8 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Set up experience buffer
     local_steps_per_epoch = int(steps_per_epoch / num_procs())
-    buf = TRPOFACBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
-
-
+    buf = SCPOBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
+    
     def compute_kl_pi(data, cur_pi):
         """
         Return the sample average KL divergence between old and new policies
@@ -319,24 +318,30 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             torch.as_tensor(logstd_old, dtype=torch.float32), device=device)
         
         return average_kl
-
-    def compute_loss_pi(data, cur_pi):
+    
+    def compute_cost_pi(data, cur_pi):
         """
-        The reward objective for TRPOFAC (TRPOFAC policy loss)
+        Return the suggorate cost for current policy
         """
-        obs, act, adv, adc, logp_old = data['obs'], data['act'], data['adv'], data['adc'], data['logp']
+        obs, act, adc, logp_old = data['obs'], data['act'], data['adc'], data['logp']
         
-        # reward loss 
+        # Surrogate cost function 
         pi, logp = cur_pi(obs, act)
         ratio = torch.exp(logp - logp_old)
-        loss_pi_reward = -(ratio * adv).mean()
-                
-        # lagrangian loss
-        _lam = ac.lam_net(obs).detach()
-        lag_term = (_lam * (ratio * adc)).mean()
+        surr_cost = (ratio * adc).mean()
         
-        # total policy loss
-        loss_pi = loss_pi_reward + lag_term
+        return surr_cost
+        
+    def compute_loss_pi(data, cur_pi):
+        """
+        The reward objective for SCPO (SCPO policy loss)
+        """
+        obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
+        
+        # Policy loss 
+        pi, logp = cur_pi(obs, act)
+        ratio = torch.exp(logp - logp_old)
+        loss_pi = -(ratio * adv).mean()
         
         # Useful extra info
         approx_kl = (logp_old - logp).mean().item()
@@ -344,12 +349,6 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         pi_info = dict(kl=approx_kl, ent=ent)
         
         return loss_pi, pi_info
-    
-    def compute_loss_lam(data):
-        # lagrangian multiplier loss 
-        obs, cost_ret = data['obs'], data['cost_ret']
-        lam_loss = (-ac.lam_net(obs) * (cost_ret - target_cost)).mean()
-        return lam_loss
         
     # Set up function for computing value loss
     def compute_loss_v(data):
@@ -362,7 +361,7 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         return ((ac.vc(obs) - cost_ret)**2).mean()
 
     # Set up optimizers for policy and value function
-    lam_optimizer = Adam(ac.lam_net.parameters(), lr=lam_lr)
+    pi_optimizer = Adam(ac.pi.parameters(), lr=pi_lr)
     vf_optimizer = Adam(ac.v.parameters(), lr=vf_lr)
     vcf_optimizer = Adam(ac.vc.parameters(), lr=vcf_lr)
 
@@ -373,22 +372,104 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     def update():
         data = buf.get()
 
+        # log the loss objective and cost function and value function for old policy
         pi_l_old, pi_info_old = compute_loss_pi(data, ac.pi)
         pi_l_old = pi_l_old.item()
+        surr_cost_old = compute_cost_pi(data, ac.pi)
+        surr_cost_old = surr_cost_old.item()
         v_l_old = compute_loss_v(data).item()
 
-        # TRPOFAC policy update core impelmentation 
+
+        # SCPO policy update core impelmentation 
         loss_pi, pi_info = compute_loss_pi(data, ac.pi)
-        g = auto_grad(loss_pi, ac.pi) # get the flatten gradient evaluted at pi old 
+        surr_cost = compute_cost_pi(data, ac.pi)
+        
+        # get Hessian for KL divergence
         kl_div = compute_kl_pi(data, ac.pi)
         Hx = lambda x: auto_hession_x(kl_div, ac.pi, torch.FloatTensor(x).to(device))
-        x_hat    = cg(Hx, g)             # Hinv_g = H \ g
         
-        s = x_hat.T @ Hx(x_hat)
-        s_ep = s if s < 0. else 1 # log s negative appearence 
+        # linearize the loss objective and cost function
+        g = auto_grad(loss_pi, ac.pi) # get the loss flatten gradient evaluted at pi old 
+        b = auto_grad(surr_cost, ac.pi) # get the cost flatten gradient evaluted at pi old
+        
+        # get the Episoe cost
+        EpLen = logger.get_stats('EpLen')[0]
+        EpCost = logger.get_stats('EpCost')[0]
+        
+        # cost constraint linearization
+        # ! this needs double check, why target_cost / EpLen
+        c = EpCost - target_cost 
+        rescale  = EpLen
+        c /= (rescale + EPS)
+        
+        # core calculation for SCPO
+        Hinv_g   = cg(Hx, g)             # Hinv_g = H \ g        
+        approx_g = Hx(Hinv_g)           # g
+        # q        = np.clip(Hinv_g.T @ approx_g, 0.0, None)  # g.T / H @ g
+        q        = Hinv_g.T @ approx_g
+        
+        # solve QP
+        # decide optimization cases (feas/infeas, recovery)
+        # Determine optim_case (switch condition for calculation,
+        # based on geometry of constrained optimization problem)
+        if b.T @ b <= 1e-8 and c < 0:
+            Hinv_b, r, s, A, B = 0, 0, 0, 0, 0
+            optim_case = 4
+        else:
+            # cost grad is nonzero: SCPO update!
+            Hinv_b = cg(Hx, b)                # H^{-1} b
+            r = Hinv_b.T @ approx_g          # b^T H^{-1} g
+            s = Hinv_b.T @ Hx(Hinv_b)        # b^T H^{-1} b
+            A = q - r**2 / s            # should be always positive (Cauchy-Shwarz)
+            B = 2*target_kl - c**2 / s  # does safety boundary intersect trust region? (positive = yes)
+
+            # c < 0: feasible
+
+            if c < 0 and B < 0:
+                # point in trust region is feasible and safety boundary doesn't intersect
+                # ==> entire trust region is feasible
+                optim_case = 3
+            elif c < 0 and B >= 0:
+                # x = 0 is feasible and safety boundary intersects
+                # ==> most of trust region is feasible
+                optim_case = 2
+            elif c >= 0 and B >= 0:
+                # x = 0 is infeasible and safety boundary intersects
+                # ==> part of trust region is feasible, recovery possible
+                optim_case = 1
+                print(colorize(f'Alert! Attempting feasible recovery!', 'yellow', bold=True))
+            else:
+                # x = 0 infeasible, and safety halfspace is outside trust region
+                # ==> whole trust region is infeasible, try to fail gracefully
+                optim_case = 0
+                print(colorize(f'Alert! Attempting INFEASIBLE recovery!', 'red', bold=True))
+        
+        print(colorize(f'optim_case: {optim_case}', 'magenta', bold=True))
+        
+        
+        # get optimal theta-theta_k direction
+        if optim_case in [3,4]:
+            lam = np.sqrt(q / (2*target_kl))
+            nu = 0
+        elif optim_case in [1,2]:
+            LA, LB = [0, r /c], [r/c, np.inf]
+            LA, LB = (LA, LB) if c < 0 else (LB, LA)
+            proj = lambda x, L : max(L[0], min(L[1], x))
+            lam_a = proj(np.sqrt(A/B), LA)
+            lam_b = proj(np.sqrt(q/(2*target_kl)), LB)
+            f_a = lambda lam : -0.5 * (A / (lam+EPS) + B * lam) - r*c/(s+EPS)
+            f_b = lambda lam : -0.5 * (q / (lam+EPS) + 2 * target_kl * lam)
+            lam = lam_a if f_a(lam_a) >= f_b(lam_b) else lam_b
+            # nu = max(0, lam * c - r) / (np.clip(s,0.,None)+EPS)
+            nu = max(0, lam * c - r) / (s+EPS)
+        else:
+            lam = 0
+            # nu = np.sqrt(2 * target_kl / (np.clip(s,0.,None)+EPS))
+            nu = np.sqrt(2 * target_kl / (s+EPS))
             
-        # x_direction = np.sqrt(2 * target_kl / (np.clip(s,0.,None)+EPS)) * x_hat
-        x_direction = np.sqrt(2 * target_kl / (s+EPS)) * x_hat
+        # normal step if optim_case > 0, but for optim_case =0,
+        # perform infeasible recovery: step to purely decrease cost
+        x_direction = (1./(lam+EPS)) * (Hinv_g + nu * Hinv_b) if optim_case > 0 else nu * Hinv_b
         
         # copy an actor to conduct line search 
         actor_tmp = copy.deepcopy(ac.pi)
@@ -397,33 +478,34 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             assign_net_param_from_flat(new_param, actor_tmp)
             kl = compute_kl_pi(data, actor_tmp)
             pi_l, _ = compute_loss_pi(data, actor_tmp)
+            surr_cost = compute_cost_pi(data, actor_tmp)
             
-            return kl, pi_l
+            return kl, pi_l, surr_cost
         
         # update the policy such that the KL diveragence constraints are satisfied and loss is decreasing
         for j in range(backtrack_iters):
             try:
-                kl, pi_l_new = set_and_eval(backtrack_coeff**j)
+                kl, pi_l_new, surr_cost_new = set_and_eval(backtrack_coeff**j)
             except:
                 import ipdb; ipdb.set_trace()
             
-            if (kl.item() <= target_kl and pi_l_new.item() <= pi_l_old):
+            if (kl.item() <= target_kl and
+                (pi_l_new.item() <= pi_l_old if optim_case > 1 else True) and # if current policy is feasible (optim>1), must preserve pi loss
+                # surr_cost_new - surr_cost_old <= max(-c,0)):
+                surr_cost_new - surr_cost_old <= max(-c,-cost_reduction)):
+                
                 print(colorize(f'Accepting new params at step %d of line search.'%j, 'green', bold=False))
+                
                 # update the policy parameter 
                 new_param = get_net_param_np_vec(ac.pi) - backtrack_coeff**j * x_direction
                 assign_net_param_from_flat(new_param, ac.pi)
+                
                 loss_pi, pi_info = compute_loss_pi(data, ac.pi) # re-evaluate the pi_info for the new policy
+                surr_cost = compute_cost_pi(data, ac.pi) # re-evaluate the surr_cost for the new policy
                 break
             if j==backtrack_iters-1:
                 print(colorize(f'Line search failed! Keeping old params.', 'yellow', bold=False))
-                
-        # update lambda (the Lagrangian multiplier)
-        lam_optimizer.zero_grad()
-        loss_lam = compute_loss_lam(data)
-        loss_lam.backward()
-        mpi_avg_grads(ac.lam_net) # average grads across MPI processes
-        lam_optimizer.step()
-        
+
         # Value function learning
         for i in range(train_v_iters):
             vf_optimizer.zero_grad()
@@ -442,14 +524,15 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # Log changes from update        
         kl, ent = pi_info['kl'], pi_info_old['ent']
-        logger.store(LossPi=pi_l_old, LossV=v_l_old,
+        logger.store(LossPi=pi_l_old, LossV=v_l_old, LossCost=surr_cost_old,
                      KL=kl, Entropy=ent,
                      DeltaLossPi=(loss_pi.item() - pi_l_old),
-                     DeltaLossV=(loss_v.item() - v_l_old))
+                     DeltaLossV=(loss_v.item() - v_l_old),
+                     DeltaLossCost=(surr_cost.item() - surr_cost_old))
 
     # Prepare for interaction with environment
     start_time = time.time()
-    # o, ep_ret, ep_len = env.reset(), 0, 0
+    
     while True:
         try:
             o, ep_ret, ep_len = env.reset(), 0, 0
@@ -458,19 +541,30 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             print('reset environment is wrong, try next reset')
     ep_cost_ret, ep_cost = 0, 0
     cum_cost = 0
+    M = None # initialize the current maximum cost 
 
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
             a, v, vc, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
-
+            
             try: 
                 next_o, r, d, info = env.step(a)
                 assert 'cost' in info.keys()
             except: 
                 # simulation exception discovered, discard this episode 
                 next_o, r, d = o, 0, True # observation will not change, no reward when episode done 
-                info['cost'] = 0 # no cost when episode done     
+                info['cost'] = 0 # no cost when episode done    
+            
+            if not M:
+                # the first step of each episode 
+                d = info['cost']
+                M = info['cost']
+            else:
+                # the second and forward step of each episode
+                d = max(info['cost'] - M, 0)
+                M += d 
+             
             # Track cumulative cost over training
             cum_cost += info['cost']
             ep_ret += r
@@ -501,8 +595,7 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 buf.finish_path(v, vc)
                 if terminal:
                     # only save EpRet / EpLen / EpCostRet if trajectory finished
-                    logger.store(EpRet=ep_ret, EpLen=ep_len, EpCost=ep_cost)
-                 # o, ep_ret, ep_len = env.reset(), 0, 0
+                    logger.store(EpRet=ep_ret, EpLen=ep_len, EpCostRet=ep_cost_ret, EpCost=ep_cost)
                 while True:
                     try:
                         o, ep_ret, ep_len = env.reset(), 0, 0
@@ -515,7 +608,7 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         if ((epoch % save_freq == 0) or (epoch == epochs-1)) and model_save:
             logger.save_state({'env': env}, None)
 
-        # Perform TRPOFAC update!
+        # Perform SCPO update!
         update()
         
         #=====================================================================#
@@ -528,6 +621,7 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('Epoch', epoch)
         logger.log_tabular('EpRet', with_min_and_max=True)
         logger.log_tabular('EpLen', average_only=True)
+        logger.log_tabular('EpCostRet', with_min_and_max=True)
         logger.log_tabular('EpCost', with_min_and_max=True)
         logger.log_tabular('CumulativeCost', cumulative_cost)
         logger.log_tabular('CostRate', cost_rate)
@@ -556,8 +650,8 @@ if __name__ == '__main__':
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
     parser.add_argument('--target_cost', type=float, default=0.1) # the cost limit for the environment
-    parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for TRPOFAC
-    parser.add_argument('--lam_lr', type=float, default=0.0001) # the learning rate for lambda
+    parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for SCPO
+    parser.add_argument('--cost_reduction', type=float, default=0.) # the cost_reduction limit when current policy is infeasible
     parser.add_argument('--hid', type=int, default=64)
     parser.add_argument('--l', type=int, default=2)
     parser.add_argument('--gamma', type=float, default=0.99)
@@ -565,23 +659,23 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='trpofac')
+    parser.add_argument('--exp_name', type=str, default='scpo')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
     
     exp_name = args.task + '_' + args.exp_name \
-                + '_' + 'target_cost' + str(args.target_cost) \
-                + '_' + 'lam_lr' + str(args.lam_lr)
+                + '_' + 'kl' + str(args.target_kl) \
+                + '_' + 'target_cost' + str(args.target_cost) 
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model
     # model_save = True if args.model_save else False
     model_save = True
 
-    trpofac(lambda : create_env(args), actor_critic=core.MLPActorCritic,
+    scpo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs, target_cost=args.target_cost, 
-        model_save=model_save, target_kl=args.target_kl, lam_lr = args.lam_lr)
+        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction)

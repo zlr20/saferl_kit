@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 from torch.distributions.normal import Normal
 from torch.distributions.categorical import Categorical
-import torch.nn.functional as F
 
 EPS = 1e-8
 
@@ -131,17 +130,8 @@ class MLPCritic(nn.Module):
 
     def forward(self, obs):
         return torch.squeeze(self.v_net(obs), -1) # Critical to ensure v has right shape.
-    
-    
-class MLPMultiplier(nn.Module):
 
-    def __init__(self, obs_dim, hidden_sizes, activation):
-        super().__init__()
-         # lagrangian multipliers can not be negative
-        self.lam_net = mlp([obs_dim] + list(hidden_sizes) + [1], activation, output_activation=nn.Softplus)
 
-    def forward(self, obs):
-        return torch.squeeze(self.lam_net(obs), -1) # Critical to ensure v has right shape.
 
 class MLPActorCritic(nn.Module):
 
@@ -149,7 +139,7 @@ class MLPActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, 
                  hidden_sizes=(64,64), activation=nn.Tanh):
         super().__init__()
-        self.device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
 
         obs_dim = observation_space.shape[0]
 
@@ -164,9 +154,6 @@ class MLPActorCritic(nn.Module):
         
         # build cost value function
         self.vc  = MLPCritic(obs_dim, hidden_sizes, activation).to(self.device)
-        
-        # lagrangian multiplier 
-        self.lam_net = MLPMultiplier(obs_dim, hidden_sizes, activation).to(self.device) # intiialize the lagrangian multiplier with zero 
 
     def step(self, obs):
         with torch.no_grad():
@@ -180,20 +167,3 @@ class MLPActorCritic(nn.Module):
 
     def act(self, obs):
         return self.step(obs)[0]
-    
-    
-# predict state-wise \lamda(s)
-# class MultiplerNet(nn.Module):
-#     def __init__(self, state_dim):
-#         super(MultiplerNet, self).__init__()
-
-#         self.l1 = nn.Linear(state_dim, 64)
-#         self.l2 = nn.Linear(64, 64)
-#         self.l3 = nn.Linear(64, 1)
-
-        
-#     def forward(self, state):
-#         a = F.relu(self.l1(state))
-#         a = F.relu(self.l2(a))
-#         #return F.relu(self.l3(a))
-#         return F.softplus(self.l3(a)) # lagrangian multipliers can not be negative
