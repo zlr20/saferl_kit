@@ -541,12 +541,14 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             print('reset environment is wrong, try next reset')
     ep_cost_ret, ep_cost = 0, 0
     cum_cost = 0
-    M = None # initialize the current maximum cost 
+    M = 0. # initialize the current maximum cost 
+    o_aug = o.append(M) # augmented observation = observation + M 
+    first_step = True
 
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
-            a, v, vc, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, vc, logp, mu, logstd = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
             
             try: 
                 next_o, r, d, info = env.step(a)
@@ -556,14 +558,18 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 next_o, r, d = o, 0, True # observation will not change, no reward when episode done 
                 info['cost'] = 0 # no cost when episode done    
             
-            if not M:
+            if first_step:
                 # the first step of each episode 
                 d = info['cost']
-                M = info['cost']
+                M_next = info['cost']
+                first_step = False
             else:
                 # the second and forward step of each episode
                 d = max(info['cost'] - M, 0)
-                M += d 
+                M_next = M + d 
+                
+            # define the new observation and cost for Maximum Markov Decision Process
+            c = d
              
             # Track cumulative cost over training
             cum_cost += info['cost']
@@ -573,7 +579,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             ep_len += 1
 
             # save and log
-            buf.store(o, a, r, v, logp, info['cost'], vc, mu, logstd)
+            buf.store(o_aug, a, r, v, logp, c, vc, mu, logstd)
             logger.store(VVals=v)
             
             # Update obs (critical!)
@@ -595,7 +601,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 buf.finish_path(v, vc)
                 if terminal:
                     # only save EpRet / EpLen / EpCostRet if trajectory finished
-                    logger.store(EpRet=ep_ret, EpLen=ep_len, EpCostRet=ep_cost_ret, EpCost=ep_cost)
+                    logger.store(EpRet=ep_ret, EpLen=ep_len, EpCostRet=ep_cost_ret, EpCost=ep_cost, EpMaxCost=M)
                 while True:
                     try:
                         o, ep_ret, ep_len = env.reset(), 0, 0
