@@ -334,15 +334,7 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # lagrangian loss
         # get the Episode cost
         # Surrogate cost function 
-        surr_cost = (ratio * adc).mean()
-        # EpLen = logger.get_stats('EpLen')[0]
-        # EpCost = logger.get_stats('EpCost')[0]
-        # c = EpCost - target_cost 
-        # rescale  = EpLen
-        # c /= (rescale + EPS)
-        # loss_pi_cost = c + surr_cost
-        # lag_term = ac.lam * loss_pi_cost
-        
+        surr_cost = (ratio * adc).mean()        
         lag_term = ac.lmd * surr_cost
         
         # total policy loss

@@ -6,7 +6,7 @@ from torch.optim import Adam
 import gym
 import time
 import copy
-import trpolag_core as core
+import trpofac_core as core
 from utils.logx import EpochLogger, setup_logger_kwargs, colorize
 from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
 from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs, mpi_sum
@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class TRPOFACBuffer:
@@ -171,11 +171,11 @@ def auto_hession_x(objective, net, x):
     
     return auto_grad(torch.dot(jacob, x), net, to_numpy=True)
 
-def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
-        steps_per_epoch=4000, epochs=50, gamma=0.99, pi_lr=3e-4,
+def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
+        steps_per_epoch=4000, epochs=50, gamma=0.99,
         vf_lr=1e-3, vcf_lr=1e-3, train_v_iters=80, train_vc_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, target_cost = 1.5, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, 
-        backtrack_iters=100, model_save=False, lam_lr=1e-2):
+        backtrack_iters=100, model_save=False, lam_lr=1e-5):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -291,7 +291,7 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Create actor-critic module
     ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs).to(device)
-
+    
     # Sync params across processes
     sync_params(ac)
 
@@ -319,10 +319,10 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             torch.as_tensor(logstd_old, dtype=torch.float32), device=device)
         
         return average_kl
-            
+
     def compute_loss_pi(data, cur_pi):
         """
-        The reward objective for TRPOLAG (TRPOLAG policy loss)
+        The reward objective for TRPOFAC (TRPOFAC policy loss)
         """
         obs, act, adv, adc, logp_old = data['obs'], data['act'], data['adv'], data['adc'], data['logp']
         
@@ -330,20 +330,10 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         pi, logp = cur_pi(obs, act)
         ratio = torch.exp(logp - logp_old)
         loss_pi_reward = -(ratio * adv).mean()
-        
+                
         # lagrangian loss
-        # get the Episode cost
-        # Surrogate cost function 
-        surr_cost = (ratio * adc).mean()
-        # EpLen = logger.get_stats('EpLen')[0]
-        # EpCost = logger.get_stats('EpCost')[0]
-        # c = EpCost - target_cost 
-        # rescale  = EpLen
-        # c /= (rescale + EPS)
-        # loss_pi_cost = c + surr_cost
-        # lag_term = ac.lam * loss_pi_cost
-        
-        lag_term = ac.lmd * surr_cost
+        _lam = ac.lam_net(obs).detach()
+        lag_term = (_lam * (ratio * adc)).mean()
         
         # total policy loss
         loss_pi = loss_pi_reward + lag_term
@@ -354,6 +344,12 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         pi_info = dict(kl=approx_kl, ent=ent)
         
         return loss_pi, pi_info
+    
+    def compute_loss_lam(data):
+        # lagrangian multiplier loss 
+        obs, cost_ret = data['obs'], data['cost_ret']
+        lam_loss = (-ac.lam_net(obs) * (cost_ret - target_cost)).mean()
+        return lam_loss
         
     # Set up function for computing value loss
     def compute_loss_v(data):
@@ -366,7 +362,7 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         return ((ac.vc(obs) - cost_ret)**2).mean()
 
     # Set up optimizers for policy and value function
-    pi_optimizer = Adam(ac.pi.parameters(), lr=pi_lr)
+    lam_optimizer = Adam(ac.lam_net.parameters(), lr=lam_lr)
     vf_optimizer = Adam(ac.v.parameters(), lr=vf_lr)
     vcf_optimizer = Adam(ac.vc.parameters(), lr=vcf_lr)
 
@@ -381,8 +377,7 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         pi_l_old = pi_l_old.item()
         v_l_old = compute_loss_v(data).item()
 
-
-        # TRPOLAG policy update core impelmentation 
+        # TRPOFAC policy update core impelmentation 
         loss_pi, pi_info = compute_loss_pi(data, ac.pi)
         g = auto_grad(loss_pi, ac.pi) # get the flatten gradient evaluted at pi old 
         kl_div = compute_kl_pi(data, ac.pi)
@@ -423,12 +418,11 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 print(colorize(f'Line search failed! Keeping old params.', 'yellow', bold=False))
                 
         # update lambda (the Lagrangian multiplier)
-        def get_cost_violation():
-            EpCost = logger.get_stats('EpCost')[0]
-            c = EpCost - target_cost 
-            return c
-        # import ipdb; ipdb.set_trace()
-        ac.lmd = max(0, ac.lmd + lam_lr * get_cost_violation())
+        lam_optimizer.zero_grad()
+        loss_lam = compute_loss_lam(data)
+        loss_lam.backward()
+        mpi_avg_grads(ac.lam_net) # average grads across MPI processes
+        lam_optimizer.step()
         
         # Value function learning
         for i in range(train_v_iters):
@@ -521,7 +515,7 @@ def trpolag(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         if ((epoch % save_freq == 0) or (epoch == epochs-1)) and model_save:
             logger.save_state({'env': env}, None)
 
-        # Perform TRPOLAG update!
+        # Perform TRPOFAC update!
         update()
         
         #=====================================================================#
@@ -562,8 +556,8 @@ if __name__ == '__main__':
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
     parser.add_argument('--target_cost', type=float, default=0.1) # the cost limit for the environment
-    parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for TRPOLAG
-    parser.add_argument('--lam_lr', type=float, default=0.001) # the learning rate for lambda
+    parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for TRPOFAC
+    parser.add_argument('--lam_lr', type=float, default=0.0001) # the learning rate for lambda
     parser.add_argument('--hid', type=int, default=64)
     parser.add_argument('--l', type=int, default=2)
     parser.add_argument('--gamma', type=float, default=0.99)
@@ -571,7 +565,7 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='trpolag')
+    parser.add_argument('--exp_name', type=str, default='trpofac')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 
@@ -586,7 +580,7 @@ if __name__ == '__main__':
     # model_save = True if args.model_save else False
     model_save = True
 
-    trpolag(lambda : create_env(args), actor_critic=core.MLPActorCritic,
+    trpofac(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs, target_cost=args.target_cost, 
