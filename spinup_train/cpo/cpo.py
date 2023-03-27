@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class CPOBuffer:
@@ -545,7 +545,13 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Prepare for interaction with environment
     start_time = time.time()
-    o, ep_ret, ep_len = env.reset(), 0, 0
+    
+    while True:
+        try:
+            o, ep_ret, ep_len = env.reset(), 0, 0
+            break
+        except:
+            print('reset environment is wrong, try next reset')
     ep_cost_ret, ep_cost = 0, 0
     cum_cost = 0
 
@@ -592,7 +598,12 @@ def cpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 if terminal:
                     # only save EpRet / EpLen / EpCostRet if trajectory finished
                     logger.store(EpRet=ep_ret, EpLen=ep_len, EpCostRet=ep_cost_ret, EpCost=ep_cost)
-                o, ep_ret, ep_len = env.reset(), 0, 0
+                while True:
+                    try:
+                        o, ep_ret, ep_len = env.reset(), 0, 0
+                        break
+                    except:
+                        print('reset environment is wrong, try next reset')
                 ep_cost_ret, ep_cost = 0, 0
 
         # Save model
@@ -658,8 +669,7 @@ if __name__ == '__main__':
     
     exp_name = args.task + '_' + args.exp_name \
                 + '_' + 'kl' + str(args.target_kl) \
-                + '_' + 'costreduce' + str(args.cost_reduction) \
-                + '_' + 'hid' + str(args.hid)
+                + '_' + 'target_cost' + str(args.target_cost) 
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model

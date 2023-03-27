@@ -139,7 +139,7 @@ class MLPActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, 
                  hidden_sizes=(64,64), activation=nn.Tanh):
         super().__init__()
-        self.device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
 
         obs_dim = observation_space.shape[0]
 
@@ -154,6 +154,9 @@ class MLPActorCritic(nn.Module):
         
         # build cost value function
         self.vc  = MLPCritic(obs_dim, hidden_sizes, activation).to(self.device)
+        
+        # lagrangian multiplier 
+        self.lmd = 0. # intiialize the lagrangian multiplier with zero 
 
     def step(self, obs):
         with torch.no_grad():
