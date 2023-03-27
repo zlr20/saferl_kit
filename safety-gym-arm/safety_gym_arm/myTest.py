@@ -5,45 +5,102 @@ import gym
 import safety_gym_arm  # noqa
 import numpy as np  # noqa
 from safety_gym_arm.envs.engine import Engine
-
+from getkey import getkey, keys
 
 def run_random(env_name):
     # env = gym.make(env_name)
     config = {
-        'robot_base': 'xmls/arm_3.xml',
-        'goal_3D':True,
+        'robot_base': 'xmls/point.xml',
+        'goal_3D': False,
+        # 'goal_travel': 1.5,
+        # 'goal_mode': 'track',
         # 'num_steps': 2000,
         'arm_link_n': 5,
-        'task': 'goal',
+        'task': 'defense',
+        'push_object': 'ball',
         'observe_goal_lidar': False,
         # 'compass_shape': 2,
-        'goal_size': 0.3,
-        'observe_goal_comp': True,
+        'goal_size': 0.5,
+        # 'observe_goal_comp': True,
         # 'observe_box_lidar': False,
         # 'observe_box_comp': True,
         'observe_hazards': False,
-        'observe_hazard3Ds': True,
+        'observe_hazard3Ds': False,
+        'observe_ghosts': True,
+        'observe_ghost3Ds': True,
         'hazard3Ds_size': 0.3,
+        'hazard3Ds_z_range': [0.5,1.5],
         'observe_vases': False,
-        'constrain_hazards': True,
-        'constrain_hazard3Ds': True,
+        'constrain_hazards': False,
+        'constrain_hazard3Ds': False,
         'observation_flatten': True,
-        'lidar_max_dist': 3,
+        'lidar_max_dist': 4,
         'lidar_num_bins': 10,
-        'lidar_num_bins3D': 6,
-        'lidar_body': ['link_1', 'link_3', 'link_5'],
+        'lidar_num_bins3D': 1,
+        # 'lidar_body': ['link_1', 'link_3', 'link_5'],
         'render_lidar_radius': 0.25,
-        'hazard3Ds_num': 2,
+        'hazard3Ds_num': 0,
         # 'hazard3Ds_locations':[(0.0,1.5)],
         'hazards_num': 0,
         'vases_num': 0,
-        'robot_locations':[(0.0,0.0)],
+        # 'vases_size': 0.2,
+        # 'robot_locations':[(0.0,0.0)],
         'robot_rot':0,
         'constrain_indicator':False,
         'hazards_cost':1.0,
+        'gremlins_num': 0,
+
+
+        'ghost3Ds_num': 2,
+        'ghost3Ds_size': 0.2,
+        'ghost3Ds_mode':'avoid',
+        'ghost3Ds_travel':1.5,
+        'ghost3Ds_velocity': 0.0001,
+        'ghost3Ds_z_range': [0.1, 0.1],
+        'ghost3Ds_contact':False,
+
+        'constrain_ghosts': True,
+        'ghosts_num': 2,
+        'ghosts_size': 0.3,
+        'ghosts_mode': 'catch',
+        'ghosts_travel':1.5,
+        'ghosts_velocity': 0.0001,
+        'ghosts_contact':False,
+        
+        'pillars_num': 0,
+        'pillars_keepout': 0.3,
+        'buttons_num': 0,
     }
     
+    config = {
+            'robot_base': 'xmls/point.xml',
+            'goal_3D': False,
+            'task': 'defense',
+            'observe_ghosts': True,
+            'observe_ghost3Ds': True,
+            'observation_flatten': True,
+            'lidar_max_dist': 4,
+            'lidar_num_bins': 10,
+            'lidar_num_bins3D': 1,
+            'render_lidar_radius': 0.25,
+            'constrain_indicator':False,
 
+            'constrain_ghosts': True,
+            'ghosts_num': 2,
+            'ghosts_size': 0.3,
+            'ghosts_mode': 'catch',
+            'ghosts_travel':2.5,
+            'ghosts_velocity': 0.0001,
+            'ghosts_contact':False,
+
+            'constrain_ghost3Ds': False,
+            'ghost3Ds_num': 2,
+            'ghost3Ds_size': 0.2,
+            'ghost3Ds_travel':2.0,
+            'ghost3Ds_velocity': 0.0001,
+            'ghost3Ds_z_range': [0.1,0.1],
+            'ghost3Ds_contact':False,
+        }
     env = Engine(config)
     obs = env.reset()
     done = False
@@ -62,11 +119,21 @@ def run_random(env_name):
         assert env.observation_space.contains(obs)
         act = env.action_space.sample()
         # act = np.zeros(act.shape)
-        # act = [0.0, 0.0]
-        # act = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        # cnt = cnt%T
-        # print(cnt)
-        # cnt += 1
+        # if cnt != 0:
+        #     key = getkey()
+        #     if key == "w":
+        #         act[0] = 1.0
+        #     if key == "s":
+        #         act[0] = -1.0
+        #     if key == "a":
+        #         act[1] = 1.0
+        #     if key == "d":
+        #         act[1] = -1.0
+        #     if key == "q":
+        #         act[2] = 1.0
+        #     if key == "e":
+        #         act[2] = -1.0  
+        # cnt = 1
         # if cnt  > 100:
         #     act = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]  
         # if cnt > 200:

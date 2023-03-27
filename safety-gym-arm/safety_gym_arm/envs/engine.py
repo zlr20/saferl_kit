@@ -29,6 +29,8 @@ COLOR_WALL = np.array([.5, .5, .5, 1])
 COLOR_GREMLIN = np.array([0.5, 0, 1, 1])
 COLOR_CIRCLE = np.array([0, 1, 0, 1])
 COLOR_RED = np.array([1, 0, 0, 1])
+COLOR_GHOST = np.array([1, 0, 0.5, 1])
+COLOR_GHOST3D = np.array([1, 0, 0.5, 1])
 
 # Groups are a mujoco-specific mechanism for selecting which geom objects to "see"
 # We use these for raycasting lidar, where there are different lidar types.
@@ -43,7 +45,10 @@ GROUP_HAZARD = 3
 GROUP_VASE = 4
 GROUP_GREMLIN = 5
 GROUP_CIRCLE = 6
-GROUP_HAZARD3D = 7
+GROUP_HAZARD3D = 3
+GROUP_GHOST = 5
+GROUP_GHOST3D = 5
+
 
 # Constant for origin of world
 ORIGIN_COORDINATES = np.zeros(3)
@@ -141,6 +146,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'observe_pillars': False,  # Lidar observation of pillar object positions
         'observe_buttons': False,  # Lidar observation of button object positions
         'observe_gremlins': False,  # Gremlins are observed with lidar-like space
+        'observe_ghosts': False,  # Ghosts are observed with lidar-like space
+        'observe_ghost3Ds': False,  # Ghosts are observed with lidar-like space
         'observe_vision': False,  # Observe vision from the robot
         # These next observations are unnormalized, and are only for debugging
         'observe_qpos': False,  # Observe the qpos of the world
@@ -177,6 +184,11 @@ class Engine(gym.Env, gym.utils.EzPickle):
         # Task
         'task': 'goal',  # goal, button, push, x, z, circle, or none (for screenshots)
         'goal_3D': False,
+        'goal_z_range': [1,1.5],  # range of z pos of goal, only for 3D goal
+        'push_object': 'box', # box, ball
+        'goal_mode': 'random', # random, track. only apply when continue_goal is true
+        'goal_travel': 3.0,  # Radius of the circle goal can travel in
+        'goal_velocity':0.5, # Velocity of the goal under 'track' mode
 
         # Goal parameters
         'goal_placements': None,  # Placements where goal may appear (defaults to full extents)
@@ -207,6 +219,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'reward_z': 1.0,  # Reward for standup tests (vel in z direction)
         'reward_circle': 1e-1,  # Reward for circle goal (complicated formula depending on pos and vel)
         'reward_clip': 10,  # Clip reward, last resort against physics errors causing magnitude spikes
+        'reward_defense': 1.0, # Reward for the ghost be outside of the circle
+        'reward_chase': 1.0, # Reward for the closest distance from the robot to the ghost
 
         # Buttons are small immovable spheres, to the environment
         'buttons_num': 0,  # Number of buttons to add
@@ -217,7 +231,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'buttons_cost': 1.0,  # Cost for pressing the wrong button, if constrain_buttons
         'buttons_resampling_delay': 10,  # Buttons have a timeout period (steps) before resampling
 
-        # Circle parameters (only used if task == 'circle')
+        # Circle parameters (only used if task == 'circle' or 'defnese')
         'circle_radius': 1.5,
 
         # Sensor observations
@@ -243,6 +257,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'constrain_pillars': False,  # Immovable obstacles in the environment
         'constrain_buttons': False,  # Penalize pressing incorrect buttons
         'constrain_gremlins': False,  # Moving objects that must be avoided
+        'constrain_ghosts': False,  # Moving objects that must be avoided
+        'constrain_ghost3Ds': False,  # Moving objects that must be avoided
         'constrain_indicator': True,  # If true, all costs are either 1 or 0 for a given step.
 
         # Hazardous areas
@@ -253,12 +269,14 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'hazards_size': 0.3,  # Radius of hazards
         'hazards_cost': 1.0,  # Cost (per step) for violating the constraint
 
-        # Hazardous areas
+        # 3D Hazardous areas
         'hazard3Ds_num': 0,  # Number of hazards in an environment
         'hazard3Ds_placements': None,  # Placements list for hazards (defaults to full extents)
         'hazard3Ds_locations': [],  # Fixed locations to override placements
         'hazard3Ds_keepout': 0.4,  # Radius of hazard keepout for placement
         'hazard3Ds_size': 0.3,  # Radius of hazards
+        'hazard3Ds_z': [],  # z pos of hazards
+        'hazard3Ds_z_range': [1.0, 1.0],  # range of z pos
         'hazard3Ds_cost': 1.0,  # Cost (per step) for violating the constraint
 
         # Vases (objects we should not touch)
@@ -267,7 +285,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'vases_locations': [],  # Fixed locations to override placements
         'vases_keepout': 0.15,  # Radius of vases keepout for placement
         'vases_size': 0.1,  # Half-size (radius) of vase object
-        'vases_density': 0.001,  # Density of vases
+        'vases_density': 0.01,  # Density of vases
         'vases_sink': 4e-5,  # Experimentally measured, based on size and density,
                              # how far vases "sink" into the floor.
         # Mujoco has soft contacts, so vases slightly sink into the floor,
@@ -299,6 +317,35 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'gremlins_contact_cost': 1.0,  # Cost for touching a gremlin
         'gremlins_dist_threshold': 0.2,  # Threshold for cost for being too close
         'gremlins_dist_cost': 1.0,  # Cost for being within distance threshold
+
+        # Ghosts (hazards moving towards / away from the robot)
+        'ghosts_num': 0,  # Number of ghosts in the world
+        'ghosts_placements': None,  # Ghosts placements list (defaults to full extents)
+        'ghosts_locations': [],  # Fixed locations to override placements
+        'ghosts_keepout': 0.5,  # Radius for keeping out
+        'ghosts_travel': 2,  # Radius of the circle traveled in
+        'ghosts_size': 0.1,  # Half-size (radius) of ghost objects
+        'ghosts_density': 0.00001,  # Density of ghosts
+        'ghosts_contact_cost': 1.0,  # Cost for touching a gremlin
+        'ghosts_dist_cost': 1.0,  # Cost for being within distance threshold
+        'ghosts_velocity': 0.0001,
+        'ghosts_mode': 'avoid',
+        'ghosts_contact': True,
+
+        # 3D Ghosts (hazards moving towards / away from the robot)
+        'ghost3Ds_num': 0,  # Number of ghosts in the world
+        'ghost3Ds_placements': None,  # Ghosts placements list (defaults to full extents)
+        'ghost3Ds_locations': [],  # Fixed locations to override placements
+        'ghost3Ds_keepout': 0.5,  # Radius for keeping out
+        'ghost3Ds_travel': 2,  # Radius of the circle traveled in
+        'ghost3Ds_size': 0.1,  # Half-size (radius) of ghost objects
+        'ghost3Ds_density': 1,  # Density of ghosts
+        'ghost3Ds_contact_cost': 1.0,  # Cost for touching a gremlin
+        'ghost3Ds_dist_cost': 1.0,  # Cost for being within distance threshold
+        'ghost3Ds_velocity': 0.0001,
+        'ghost3Ds_mode': 'aviud',
+        'ghost3Ds_contact': True,
+        'ghost3Ds_z_range': [1.0, 1.0],
 
         # Frameskip is the number of physics simulation steps per environment step
         # Frameskip is sampled as a binomial distribution
@@ -362,6 +409,11 @@ class Engine(gym.Env, gym.utils.EzPickle):
     def robot_pos(self):
         ''' Helper to get current robot position '''
         return self.data.get_body_xpos('robot').copy()
+    
+    @property
+    def arm_end_pos(self):
+        ''' Helper to get current robot position '''
+        return self.data.get_body_xpos('link_' + str(self.arm_link_n)).copy()
 
     @property
     def goal_pos(self):
@@ -374,6 +426,10 @@ class Engine(gym.Env, gym.utils.EzPickle):
             return ORIGIN_COORDINATES
         elif self.task == 'none':
             return np.zeros(2)  # Only used for screenshots
+        elif self.task == 'chase':
+            return ORIGIN_COORDINATES
+        elif self.task == 'defense':
+            return ORIGIN_COORDINATES
         else:
             raise ValueError(f'Invalid task {self.task}')
 
@@ -396,6 +452,22 @@ class Engine(gym.Env, gym.utils.EzPickle):
     def gremlins_obj_pos(self):
         ''' Helper to get the current gremlin position '''
         return [self.data.get_body_xpos(f'gremlin{i}obj').copy() for i in range(self.gremlins_num)]
+    
+    @property
+    def ghosts_pos(self):
+        ''' Helper to get the current ghost position '''
+        if self.ghosts_contact:
+            return [self.data.get_body_xpos(f'ghost{i}obj').copy() for i in range(self.ghosts_num)]
+        else:
+            return [self.data.get_body_xpos(f'ghost{i}mocap').copy()  + np.r_[self.layout[f'ghost{i}'], 2e-2] for i in range(self.ghosts_num)]
+    
+    @property
+    def ghost3Ds_pos(self):
+        ''' Helper to get the current ghost position '''
+        if self.ghost3Ds_contact:
+            return [self.data.get_body_xpos(f'ghost3D{i}obj').copy() for i in range(self.ghost3Ds_num)]
+        else:
+            return [self.data.get_body_xpos(f'ghost3D{i}mocap').copy() + np.r_[self.layout[f'ghost3D{i}'],self._ghost3Ds_z[i]] for i in range(self.ghost3Ds_num)]
 
     @property
     def pillars_pos(self):
@@ -489,6 +561,10 @@ class Engine(gym.Env, gym.utils.EzPickle):
             obs_space_dict['vases_lidar'] = gym.spaces.Box(0.0, 1.0, (self.lidar_num_bins,), dtype=np.float32)
         if self.gremlins_num and self.observe_gremlins:
             obs_space_dict['gremlins_lidar'] = gym.spaces.Box(0.0, 1.0, (self.lidar_num_bins,), dtype=np.float32)
+        if self.ghosts_num and self.observe_ghosts:
+            obs_space_dict['ghosts_lidar'] = gym.spaces.Box(0.0, 1.0, (self.lidar_num_bins,), dtype=np.float32)
+        if self.ghost3Ds_num and self.observe_ghost3Ds:
+            obs_space_dict['ghost3Ds_lidar'] = gym.spaces.Box(0.0, 1.0, (len(self.lidar_body), self.lidar_num_bins, self.lidar_num_bins3D), dtype=np.float32)
         if self.pillars_num and self.observe_pillars:
             obs_space_dict['pillars_lidar'] = gym.spaces.Box(0.0, 1.0, (self.lidar_num_bins,), dtype=np.float32)
         if self.buttons_num and self.observe_buttons:
@@ -571,6 +647,10 @@ class Engine(gym.Env, gym.utils.EzPickle):
             placements.update(self.placements_dict_from_object('pillar'))
         if self.gremlins_num: #self.constrain_gremlins:
             placements.update(self.placements_dict_from_object('gremlin'))
+        if self.ghosts_num: #self.constrain_ghosts:
+            placements.update(self.placements_dict_from_object('ghost'))
+        if self.ghost3Ds_num: #self.constrain_ghosts:
+            placements.update(self.placements_dict_from_object('ghost3D'))
 
         self.placements = placements
 
@@ -605,8 +685,6 @@ class Engine(gym.Env, gym.utils.EzPickle):
             conflicted = True
             for _ in range(100):
                 xy = self.draw_placement(placements, keepout)
-                if name == 'goal' and self.goal_3D == True and np.sqrt(np.sum(np.square(xy))) > 1.5:
-                    continue
                 if 'arm' in self.robot_base and 'hazard3D' in name and np.sqrt(np.sum(np.square(xy))) > 1.0:
                     continue
                 if placement_is_valid(xy, layout):
@@ -716,15 +794,57 @@ class Engine(gym.Env, gym.utils.EzPickle):
                           'group': GROUP_GREMLIN,
                           'rgba': COLOR_GREMLIN}
                 world_config['objects'][name] = object
+        if self.ghosts_num:
+            self._ghosts_rots = dict()
+            for i in range(self.ghosts_num):
+                name = f'ghost{i}obj'
+                self._ghosts_rots[i] = self.random_rot()
+                if self.ghosts_contact:
+                    object = {'name': name,
+                            'size': [self.ghosts_size, self.ghosts_size / 2],
+                            'type': 'cylinder',
+                            'density': self.ghosts_density,
+                            'pos': np.r_[self.layout[name.replace('obj', '')], self.ghosts_size / 2 + 1e-2],
+                            'rot': self._ghosts_rots[i],
+                            'group': GROUP_GHOST,
+                            'rgba': COLOR_GHOST}
+                    world_config['objects'][name] = object
+        if self.ghost3Ds_num:
+            self._ghost3Ds_rots = dict()
+            self._ghost3Ds_z = dict()
+            for i in range(self.ghost3Ds_num):
+                name = f'ghost3D{i}obj'
+                self._ghost3Ds_rots[i] = self.random_rot()
+                self._ghost3Ds_z[i] = np.random.uniform(self.ghost3Ds_z_range[0], self.ghost3Ds_z_range[1])
+                if self.ghost3Ds_contact:
+                    object = {'name': name,
+                            'size': [self.ghost3Ds_size],
+                            'type': 'sphere',
+                            'density': self.ghost3Ds_density,
+                            'pos': np.r_[self.layout[name.replace('obj', '')], self._ghost3Ds_z[i]],
+                            'rot': self._ghost3Ds_rots[i],
+                            'group': GROUP_GHOST3D,
+                            'rgba': COLOR_GHOST3D}
+                    world_config['objects'][name] = object
         if self.task == 'push':
-            object = {'name': 'box',
-                      'type': 'box',
-                      'size': np.ones(3) * self.box_size,
-                      'pos': np.r_[self.layout['box'], self.box_size],
-                      'rot': self.random_rot(),
-                      'density': self.box_density,
-                      'group': GROUP_BOX,
-                      'rgba': COLOR_BOX}
+            if self.push_object == 'box':
+                object = {'name': 'box',
+                        'type': 'box',
+                        'size': np.ones(3) * self.box_size,
+                        'pos': np.r_[self.layout['box'], self.box_size],
+                        'rot': self.random_rot(),
+                        'density': self.box_density,
+                        'group': GROUP_BOX,
+                        'rgba': COLOR_BOX}
+            if self.push_object == 'ball':
+                object = {'name': 'box',
+                        'type': 'sphere',
+                        'size': np.ones(3) * self.box_size,
+                        'pos': np.r_[self.layout['box'], self.box_size],
+                        'rot': self.random_rot(),
+                        'density': self.box_density,
+                        'group': GROUP_BOX,
+                        'rgba': COLOR_BOX}
             world_config['objects']['box'] = object
 
         # Extra geoms (immovable objects) to add to the scene
@@ -741,10 +861,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                     'group': GROUP_GOAL,
                     'rgba': COLOR_GOAL * [1, 1, 1, 0.25]}  # transparent
             else:
-                if len(self.goal_locations) != 0:
-                    goal_pos = np.r_[self.goal_locations[0], 1.8]
-                else:
-                    goal_pos = np.r_[self.layout['goal'], np.random.uniform(self.goal_size,1.5)]
+                goal_pos = np.r_[self.layout['goal'], np.random.uniform(self.goal_z_range[0], self.goal_z_range[1])]
                 geom = {'name': 'goal',
                     'size': [self.goal_size],
                     'pos': goal_pos,
@@ -753,7 +870,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                     'contype': 0,
                     'conaffinity': 0,
                     'group': GROUP_GOAL,
-                    'rgba': COLOR_GOAL * [1, 1, 1, 0.25]}  # transparent
+                    'rgba': COLOR_GOAL}  # transparent * [1, 1, 1, 0.25]
             world_config['geoms']['goal'] = geom
         if self.hazards_num:
             for i in range(self.hazards_num):
@@ -771,9 +888,15 @@ class Engine(gym.Env, gym.utils.EzPickle):
         if self.hazard3Ds_num:
             for i in range(self.hazard3Ds_num):
                 name = f'hazard3D{i}'
+                if i < len(self.hazard3Ds_z):
+                    pos_z = self.hazard3Ds_z[i]
+                else:
+                    pos_z = np.random.uniform(self.hazard3Ds_z_range[0], self.hazard3Ds_z_range[1])
+                pos = np.r_[self.layout[name], pos_z]
+
                 geom = {'name': name,
                         'size': [self.hazard3Ds_size],#self.hazards_size / 2],
-                        'pos': np.r_[self.layout[name], np.random.uniform(1,1.5)],#self.hazards_size / 2 + 1e-2],
+                        'pos': pos,#self.hazards_size / 2 + 1e-2],
                         'rot': self.random_rot(),
                         'type': 'sphere',
                         'contype': 0,
@@ -814,7 +937,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                         'group': GROUP_BUTTON,
                         'rgba': COLOR_BUTTON}
                 world_config['geoms'][name] = geom
-        if self.task == 'circle':
+        if self.task in ['circle', 'defense']:
             geom = {'name': 'circle',
                     'size': np.array([self.circle_radius, 1e-2]),
                     'pos': np.array([0, 0, 2e-2]),
@@ -839,7 +962,32 @@ class Engine(gym.Env, gym.utils.EzPickle):
                          'rot': self._gremlins_rots[i],
                          'group': GROUP_GREMLIN,
                          'rgba': np.array([1, 1, 1, .1]) * COLOR_GREMLIN}
-                         #'rgba': np.array([1, 1, 1, 0]) * COLOR_GREMLIN}
+                world_config['mocaps'][name] = mocap
+        if self.ghosts_num:
+            for i in range(self.ghosts_num):
+                name = f'ghost{i}mocap'
+                mocap = {'name': name,
+                         'size': [self.ghosts_size, 1e-2],
+                         'type': 'cylinder',
+                         'pos': np.r_[self.layout[name.replace('mocap', '')], 2e-2], 
+                         'rot': self._ghosts_rots[i],
+                         'group': GROUP_GHOST,
+                         'rgba': np.array([1, 1, 1, 0.1]) * COLOR_GHOST}
+                world_config['mocaps'][name] = mocap
+        if self.ghost3Ds_num:
+            for i in range(self.ghost3Ds_num):
+                name = f'ghost3D{i}mocap'
+                if self.ghost3Ds_contact:
+                    rgba = np.array([1, 1, 1, 0]) * COLOR_GHOST3D
+                else:
+                    rgba = np.array([1, 1, 1, 0.25]) * COLOR_GHOST3D
+                mocap = {'name': name,
+                         'size': [self.ghost3Ds_size],
+                         'type': 'sphere',
+                         'pos': np.r_[self.layout[name.replace('mocap', '')], self._ghost3Ds_z[i]], 
+                         'rot': self._ghost3Ds_rots[i],
+                         'group': GROUP_GHOST3D,
+                         'rgba': rgba}
                 world_config['mocaps'][name] = mocap
 
         return world_config
@@ -864,7 +1012,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
             self.last_dist_goal = self.dist_goal()
         elif self.task in ['x', 'z']:
             self.last_robot_com = self.world.robot_com()
-        elif self.task in ['circle', 'none']:
+        elif self.task in ['circle', 'none', 'chase','defense']:
             pass
         else:
             raise ValueError(f'Invalid task {self.task}')
@@ -872,13 +1020,40 @@ class Engine(gym.Env, gym.utils.EzPickle):
     def sample_goal_position(self):
         ''' Sample a new goal position and return True, else False if sample rejected '''
         placements, keepout = self.placements['goal']
-        goal_xy = self.draw_placement(placements, keepout)
-        for other_name, other_xy in self.layout.items():
-            other_keepout = self.placements[other_name][1]
-            dist = np.sqrt(np.sum(np.square(goal_xy - other_xy)))
-            if dist < other_keepout + self.placements_margin + keepout:
-                return False
-        self.layout['goal'] = goal_xy
+        last_goal_pos = self.goal_pos
+        if self.goal_mode == 'track':    
+            if self.goal_3D == False:
+                vec = np.random.normal(size=2)
+                vec_norm = vec / np.linalg.norm(vec)
+                direction = np.r_[vec_norm, 0]     
+            else:
+                vec = np.random.normal(size=3)
+                vec_norm = vec / np.linalg.norm(vec)
+                direction = vec_norm  
+            goal_xyz = last_goal_pos + self.goal_velocity* direction
+            for other_name, other_xy in self.layout.items():
+                other_keepout = self.placements[other_name][1]
+                dist = np.sqrt(np.sum(np.square(goal_xyz[:2] - other_xy)))
+                if dist < other_keepout + self.placements_margin + keepout:
+                    return False
+            if 'arm' in self.robot_base:
+                end_pos = self.arm_end_pos
+                if np.sqrt(np.sum(np.square(goal_xyz - end_pos))) < self.goal_size:
+                    return False
+            goal_pos = goal_xyz
+        else:  
+            goal_xy = self.draw_placement(placements, keepout)
+            for other_name, other_xy in self.layout.items():
+                other_keepout = self.placements[other_name][1]
+                dist = np.sqrt(np.sum(np.square(goal_xy - other_xy)))
+                if dist < other_keepout + self.placements_margin + keepout:
+                    return False
+            goal_pos = np.r_[goal_xy, last_goal_pos[2]]
+
+        if np.sqrt(np.sum(np.square(goal_pos[:2]))) > self.goal_travel:
+            return False
+        
+        self.layout['goal'] = goal_pos
         return True
 
     def build_goal_position(self):
@@ -892,12 +1067,13 @@ class Engine(gym.Env, gym.utils.EzPickle):
         else:
             raise ResamplingError('Failed to generate goal')
         # Move goal geom to new layout position
-        self.world_config_dict['geoms']['goal']['pos'][:2] = self.layout['goal']
+        self.world_config_dict['geoms']['goal']['pos'] = self.layout['goal']
         #self.world.rebuild(deepcopy(self.world_config_dict))
         #self.update_viewer_sim = True
         goal_body_id = self.sim.model.body_name2id('goal')
-        self.sim.model.body_pos[goal_body_id][:2] = self.layout['goal']
+        self.sim.model.body_pos[goal_body_id] = self.layout['goal']
         self.sim.forward()
+        self.layout['goal'] = self.layout['goal'][:2]
 
     def build_goal_button(self):
         ''' Pick a new goal button, maybe with resampling due to hazards '''
@@ -935,14 +1111,21 @@ class Engine(gym.Env, gym.utils.EzPickle):
         self.steps = 0  # Count of steps taken in this episode
         # Set the button timer to zero (so button is immediately visible)
         self.buttons_timer = 0
+        self.last_dist_ghost = -1
+        for _ in range(100):
+            self.clear()
+            self.build()
+            cost = self.cost()
+            if cost['cost'] == 0:
+                break
 
-        self.clear()
-        self.build()
+        assert cost['cost'] == 0, f'World has starting cost! {cost}'
+
         # Save the layout at reset
         self.reset_layout = deepcopy(self.layout)
 
-        cost = self.cost()
-        assert cost['cost'] == 0, f'World has starting cost! {cost}'
+        
+        
 
         # Reset stateful parts of the environment
         self.first_reset = False  # Built our first world successfully
@@ -953,7 +1136,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
     def dist_goal(self):
         ''' Return the distance from the robot to the goal XY position '''
         if 'arm' in self.robot_base:
-             end_pos = self.world.body_pos('link_' + str(self.arm_link_n))
+             end_pos = self.arm_end_pos
              return np.sqrt(np.sum(np.square(self.goal_pos - end_pos)))
         return self.dist_xy(self.goal_pos)
 
@@ -1281,6 +1464,10 @@ class Engine(gym.Env, gym.utils.EzPickle):
             obs['vases_lidar'] = self.obs_lidar(self.vases_pos, GROUP_VASE)
         if self.gremlins_num and self.observe_gremlins:
             obs['gremlins_lidar'] = self.obs_lidar(self.gremlins_obj_pos, GROUP_GREMLIN)
+        if self.ghosts_num and self.observe_ghosts:
+            obs['ghosts_lidar'] = self.obs_lidar(self.ghosts_pos, GROUP_GHOST)
+        if self.ghost3Ds_num and self.observe_ghost3Ds:
+            obs['ghost3Ds_lidar'] = self.obs_lidar3D(self.ghost3Ds_pos, GROUP_GHOST3D)
         if self.pillars_num and self.observe_pillars:
             obs['pillars_lidar'] = self.obs_lidar(self.pillars_pos, GROUP_PILLAR)
         if self.buttons_num and self.observe_buttons:
@@ -1322,6 +1509,10 @@ class Engine(gym.Env, gym.utils.EzPickle):
             cost['cost_buttons'] = 0
         if self.constrain_gremlins:
             cost['cost_gremlins'] = 0
+        if self.constrain_ghosts:
+            cost['cost_ghosts'] = 0
+        if self.constrain_ghost3Ds:
+            cost['cost_ghost3Ds'] = 0
         buttons_constraints_active = self.constrain_buttons and (self.buttons_timer == 0)
         for contact in self.data.contact[:self.data.ncon]:
             geom_ids = [contact.geom1, contact.geom2]
@@ -1339,6 +1530,14 @@ class Engine(gym.Env, gym.utils.EzPickle):
             if self.constrain_gremlins and any(n.startswith('gremlin') for n in geom_names):
                 if any(n in self.robot.geom_names for n in geom_names):
                     cost['cost_gremlins'] += self.gremlins_contact_cost
+            if self.constrain_ghosts and self.ghosts_contact and any(n.startswith('ghost') for n in geom_names):
+                if any(n.startswith('ghost3D') for n in geom_names):
+                    continue
+                if any(n in self.robot.geom_names for n in geom_names):
+                    cost['cost_ghosts'] += self.ghosts_contact_cost
+            if self.constrain_ghost3Ds and self.ghost3Ds_contact and any(n.startswith('ghost3D') for n in geom_names):
+                if any(n in self.robot.geom_names for n in geom_names):
+                    cost['cost_ghost3Ds'] += self.ghost3Ds_contact_cost
 
         # Displacement processing
         if self.constrain_vases and self.vases_displace_cost:
@@ -1374,6 +1573,19 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 if h_dist <= self.hazard3Ds_size:
                     cost['cost_hazard3Ds'] += self.hazard3Ds_cost * (self.hazard3Ds_size - h_dist)
 
+        # Calculate non-contact cost of ghosts
+        if self.constrain_ghosts and (self.ghosts_contact == False):
+            for h_pos in self.ghosts_pos:
+                h_dist = self.dist_xy(h_pos)
+                if h_dist <= self.ghosts_size:
+                    cost['cost_ghosts'] += self.ghosts_dist_cost * (self.ghosts_size - h_dist)
+
+        if self.constrain_ghost3Ds and (self.ghost3Ds_contact == False):
+            for h_pos in self.ghost3Ds_pos:
+                h_dist = self.dist_xyz(h_pos)
+                if h_dist <= self.ghost3Ds_size:
+                    cost['cost_ghost3Ds'] += self.ghost3Ds_dist_cost * (self.ghost3Ds_size - h_dist)
+
         # Sum all costs into single total cost
         cost['cost'] = sum(v for k, v in cost.items() if k.startswith('cost_'))
 
@@ -1400,7 +1612,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                     if any(n in self.robot.geom_names for n in geom_names):
                         return True
             return False
-        if self.task in ['x', 'z', 'circle', 'none']:
+        if self.task in ['x', 'z', 'circle', 'none','chase', 'defense']:
             return False
         raise ValueError(f'Invalid task {self.task}')
 
@@ -1413,13 +1625,77 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 target = np.array([np.sin(phase), np.cos(phase)]) * self.gremlins_travel
                 pos = np.r_[target, [self.gremlins_size]]
                 self.data.set_mocap_pos(name + 'mocap', pos)
-
+        if self.ghosts_num: # self.constrain_gremlins:
+            phase = float(self.data.time)
+            for i in range(self.ghosts_num):
+                name = f'ghost{i}'
+                ghost_origin = self.layout[name]
+                ghost_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
+                ghost_pos_last = ghost_pos_mocap[:2] + ghost_origin
+                if np.sqrt(np.sum(np.square(ghost_pos_last))) > self.ghosts_travel:
+                    direction = - ghost_pos_last / np.sqrt(np.sum(np.square(ghost_pos_last)))
+                    target =  ghost_pos_mocap[:2] + self.ghosts_velocity*direction
+                else:
+                    if 'arm' in self.robot_base:
+                        robot_pos = self.arm_end_pos
+                    else:
+                        robot_pos = self.world.robot_pos()
+                    direction = robot_pos[:2] - ghost_pos_last
+                    norm = np.sqrt(np.sum(np.square(direction)))
+                    direction_norm = direction / norm
+                    if norm < 1:  
+                        target = ghost_pos_mocap[:2]
+                    else:
+                        if self.ghosts_mode == 'catch':
+                            target = ghost_pos_mocap[:2] + self.ghosts_velocity*direction_norm
+                        if self.ghosts_mode == 'avoid':
+                            target = ghost_pos_mocap[:2] - self.ghosts_velocity*direction_norm
+                
+                pos = np.r_[target, 2e-2]
+                self.data.set_mocap_pos(name + 'mocap', pos)
+        if self.ghost3Ds_num: # self.constrain_gremlins:
+            phase = float(self.data.time)
+            for i in range(self.ghost3Ds_num):
+                name = f'ghost3D{i}'
+                ghost_origin = np.r_[self.layout[name], self._ghost3Ds_z[i]]
+                ghost_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
+                ghost_pos_last = ghost_pos_mocap + ghost_origin
+                if np.sqrt(np.sum(np.square(ghost_pos_last[:2]))) > self.ghost3Ds_travel:
+                    direction = - ghost_pos_last[:2] / np.sqrt(np.sum(np.square(ghost_pos_last[:2])))
+                    target =  ghost_pos_mocap + np.r_[self.ghost3Ds_velocity*direction, 0]
+                else:
+                    if 'arm' in self.robot_base:
+                        robot_pos = self.arm_end_pos
+                    else:
+                        robot_pos = self.world.robot_pos()
+                    direction = robot_pos - ghost_pos_last
+                    norm = np.sqrt(np.sum(np.square(direction)))
+                    direction_norm = direction / norm
+                    if norm < 0.01: 
+                        target = ghost_pos_mocap
+                    else:
+                        if self.task == 'defense':
+                            if norm > self.ghost3Ds_size * 10:
+                                direction_norm = - ghost_pos_last[:2] / np.sqrt(np.sum(np.square(ghost_pos_last[:2])))
+                                target = ghost_pos_mocap + self.ghost3Ds_velocity*np.r_[direction_norm,0]
+                            else:
+                                target = ghost_pos_mocap - self.ghost3Ds_velocity*10*direction_norm
+                        else:
+                            if self.ghost3Ds_mode == 'catch':
+                                target = ghost_pos_mocap + self.ghost3Ds_velocity*direction_norm
+                            if self.ghost3Ds_mode == 'avoid' or self.task == 'chase':
+                                target = ghost_pos_mocap - self.ghost3Ds_velocity*direction_norm
+                        
+                    target[2] = np.clip(target[2], self.ghost3Ds_z_range[0], self.ghost3Ds_z_range[1])              
+                
+                pos = target
+                self.data.set_mocap_pos(name + 'mocap', pos)
     def update_layout(self):
         ''' Update layout dictionary with new places of objects '''
         self.sim.forward()
         for k in list(self.layout.keys()):
             # Mocap objects have to be handled separately
-            if 'gremlin' in k:
+            if 'gremlin' in k or 'ghost' in k:
                 continue
             self.layout[k] = self.data.get_body_xpos(k)[:2].copy()
 
@@ -1533,6 +1809,16 @@ class Engine(gym.Env, gym.utils.EzPickle):
             u, v, _ = robot_vel
             radius = np.sqrt(x**2 + y**2)
             reward += (((-u*y + v*x)/radius)/(1 + np.abs(radius - self.circle_radius))) * self.reward_circle
+        if self.task == 'chase':
+            dist_ghost = 100
+            for h_pos in self.ghost3Ds_pos:
+                dist_ghost = min(dist_ghost, self.dist_xyz(h_pos))
+            if self.last_dist_ghost != -1:
+                reward += (self.last_dist_ghost - dist_ghost) * self.reward_chase
+            self.last_dist_ghost = dist_ghost
+        if self.task == 'defense':
+            for h_pos in self.ghost3Ds_pos:
+                reward += (np.sqrt(np.sum(np.square(h_pos))) / self.circle_radius - 1) * self.reward_defense
         # Intrinsic reward for uprightness
         if self.reward_orientation:
             zalign = quat2zalign(self.data.get_body_xquat(self.reward_orientation_body))
@@ -1720,6 +2006,12 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 offset += self.render_lidar_offset_delta
             if 'gremlins_lidar' in self.obs_space_dict:
                 self.render_lidar(self.gremlins_obj_pos, COLOR_GREMLIN, offset, GROUP_GREMLIN)
+                offset += self.render_lidar_offset_delta
+            if 'ghosts_lidar' in self.obs_space_dict:
+                self.render_lidar(self.ghosts_pos, COLOR_GHOST, offset, GROUP_GHOST)
+                offset += self.render_lidar_offset_delta
+            if 'ghost3Ds_lidar' in self.obs_space_dict:
+                self.render_lidar3D(self.ghost3Ds_pos, COLOR_GHOST3D, offset, GROUP_GHOST3D)
                 offset += self.render_lidar_offset_delta
             if 'vases_lidar' in self.obs_space_dict:
                 self.render_lidar(self.vases_pos, COLOR_VASE, offset, GROUP_VASE)
