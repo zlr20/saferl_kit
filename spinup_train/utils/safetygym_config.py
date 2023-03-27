@@ -571,5 +571,93 @@ def configuration(task, args):
             'hazards_size': 0.30,
             'vases_num': 0,
         }
+    
+    if task == 'Point_Ball_Ghost_2':
+        config = {
+            'robot_base': 'xmls/point.xml',
+            'goal_3D': False,
+            'task': 'push',
+            'push_object': 'ball',
+            'goal_size': 0.5,
+            'observe_goal_comp': True,
+            'observe_box_comp': True,
+            'observe_ghosts': True,
+            'observation_flatten': True,
+            'lidar_max_dist': 4,
+            'lidar_num_bins': 10,
+            'lidar_num_bins3D': 1,
+            'render_lidar_radius': 0.25,
+            'constrain_indicator':False,
+
+            'constrain_ghosts': True,
+            'ghosts_num': 2,
+            'ghosts_size': 0.3,
+            'ghosts_mode': 'catch',
+            'ghosts_travel':2.5,
+            'ghosts_velocity': 0.0001,
+            'ghosts_contact':False,
+        }
+
+    if task == 'Point_Chase_Ghost_2':
+        config = {
+            'robot_base': 'xmls/point.xml',
+            'goal_3D': False,
+            'task': 'chase',
+            'observe_ghosts': True,
+            'observe_ghost3Ds': True,
+            'observation_flatten': True,
+            'lidar_max_dist': 4,
+            'lidar_num_bins': 10,
+            'lidar_num_bins3D': 1,
+            'render_lidar_radius': 0.25,
+            'constrain_indicator':False,
+
+            'constrain_ghosts': True,
+            'ghosts_num': 2,
+            'ghosts_size': 0.3,
+            'ghosts_mode': 'catch',
+            'ghosts_travel':2.5,
+            'ghosts_velocity': 0.0001,
+            'ghosts_contact':False,
+
+            'constrain_ghost3Ds': False,
+            'ghost3Ds_num': 2,
+            'ghost3Ds_size': 0.2,
+            'ghost3Ds_travel':2.0,
+            'ghost3Ds_velocity': 0.0001,
+            'ghost3Ds_z_range': [0.1,0.1],
+            'ghost3Ds_contact':False,
+        }
+
+    if task == 'Point_Defense_Ghost_2':
+        config = {
+            'robot_base': 'xmls/point.xml',
+            'goal_3D': False,
+            'task': 'defense',
+            'observe_ghosts': True,
+            'observe_ghost3Ds': True,
+            'observation_flatten': True,
+            'lidar_max_dist': 4,
+            'lidar_num_bins': 10,
+            'lidar_num_bins3D': 1,
+            'render_lidar_radius': 0.25,
+            'constrain_indicator':False,
+
+            'constrain_ghosts': True,
+            'ghosts_num': 2,
+            'ghosts_size': 0.3,
+            'ghosts_mode': 'catch',
+            'ghosts_travel':2.5,
+            'ghosts_velocity': 0.0001,
+            'ghosts_contact':False,
+
+            'constrain_ghost3Ds': False,
+            'ghost3Ds_num': 2,
+            'ghost3Ds_size': 0.2,
+            'ghost3Ds_travel':2.0,
+            'ghost3Ds_velocity': 0.0001,
+            'ghost3Ds_z_range': [0.1,0.1],
+            'ghost3Ds_contact':False,
+        }
         
     return config
