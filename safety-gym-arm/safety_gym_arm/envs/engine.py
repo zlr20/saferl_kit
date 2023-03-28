@@ -231,8 +231,9 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'buttons_cost': 1.0,  # Cost for pressing the wrong button, if constrain_buttons
         'buttons_resampling_delay': 10,  # Buttons have a timeout period (steps) before resampling
 
-        # Circle parameters (only used if task == 'circle' or 'defnese')
+        # Circle parameters (only used if task == 'circle' or 'defense')
         'circle_radius': 1.5,
+        'defense_range': 2,
 
         # Sensor observations
         # Specify which sensors to add to observation space
@@ -1675,7 +1676,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                         target = ghost_pos_mocap
                     else:
                         if self.task == 'defense':
-                            if norm > self.ghost3Ds_size * 10:
+                            if norm > self.defense_range:
                                 direction_norm = - ghost_pos_last[:2] / np.sqrt(np.sum(np.square(ghost_pos_last[:2])))
                                 target = ghost_pos_mocap + self.ghost3Ds_velocity*np.r_[direction_norm,0]
                             else:
@@ -1818,7 +1819,11 @@ class Engine(gym.Env, gym.utils.EzPickle):
             self.last_dist_ghost = dist_ghost
         if self.task == 'defense':
             for h_pos in self.ghost3Ds_pos:
-                reward += (np.sqrt(np.sum(np.square(h_pos))) / self.circle_radius - 1) * self.reward_defense
+                dist = np.sqrt(np.sum(np.square(h_pos))) / self.circle_radius - 1
+                if dist < 0:
+                    reward += dist * self.reward_defense
+                else:
+                    reward += 0.1 * self.reward_defense
         # Intrinsic reward for uprightness
         if self.reward_orientation:
             zalign = quat2zalign(self.data.get_body_xquat(self.reward_orientation_body))

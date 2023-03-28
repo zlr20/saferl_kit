@@ -101,6 +101,7 @@ def run_random(env_name):
             'ghost3Ds_z_range': [0.1,0.1],
             'ghost3Ds_contact':False,
         }
+        
     env = Engine(config)
     obs = env.reset()
     done = False
@@ -108,9 +109,11 @@ def run_random(env_name):
     ep_cost = 0
     cnt = 0
     T = 1000
-    with open("link_pos.txt",'w+') as f:
-        pos_6 = []
-        np.savetxt(f, pos_6,  delimiter = ' ')
+    
+    # with open("link_pos.txt",'w+') as f:
+    #     pos_6 = []
+    #     np.savetxt(f, pos_6,  delimiter = ' ')
+    ac = 10.0
     while True:
         if done:
             print('Episode Return: %.3f \t Episode Cost: %.3f'%(ep_ret, ep_cost))
@@ -118,7 +121,16 @@ def run_random(env_name):
             obs = env.reset()
         assert env.observation_space.contains(obs)
         act = env.action_space.sample()
-        # act = np.zeros(act.shape)
+        act = np.zeros(act.shape)
+        
+        cnt = cnt + 1
+        if cnt % 400 > 200:
+            act[0] = 10.0
+            act[1] = 10.0
+        else:
+            act[0] = -10.0
+            act[1] = -10.0
+
         # if cnt != 0:
         #     key = getkey()
         #     if key == "w":
