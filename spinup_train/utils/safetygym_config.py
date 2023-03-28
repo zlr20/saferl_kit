@@ -701,12 +701,12 @@ def configuration(task, args):
             'ghosts_contact':False,
 
             'constrain_ghost3Ds': False,
-            'ghost3Ds_num': 2,
+            'ghost3Ds_num': 5,
             'ghost3Ds_size': 0.2,
             'ghost3Ds_travel':2.0,
             'ghost3Ds_velocity': 0.001,
             'ghost3Ds_z_range': [0.1,0.1],
-            'ghost3Ds_contact':False,
+            'ghost3Ds_contact':True,
         }
 
     if task == 'Point_Defense_Ghost_2':

@@ -1727,6 +1727,11 @@ class Engine(gym.Env, gym.utils.EzPickle):
                                 target = ghost_pos_mocap + self.ghost3Ds_velocity*np.r_[direction_norm,0]
                             else:
                                 target = ghost_pos_mocap - self.ghost3Ds_velocity*10*direction_norm
+                        if self.task == 'chase':
+                            if norm > 1.5:
+                                target = ghost_pos_mocap
+                            else:
+                                target = ghost_pos_mocap - self.ghost3Ds_velocity*10*direction_norm
                         else:
                             if self.ghost3Ds_mode == 'catch':
                                 target = ghost_pos_mocap + self.ghost3Ds_velocity*direction_norm
