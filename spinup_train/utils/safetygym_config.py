@@ -674,7 +674,7 @@ def configuration(task, args):
             'ghosts_size': 0.3,
             'ghosts_mode': 'catch',
             'ghosts_travel':2.5,
-            'ghosts_velocity': 0.0001,
+            'ghosts_velocity': 0.001,
             'ghosts_contact':False,
         }
 
@@ -697,14 +697,14 @@ def configuration(task, args):
             'ghosts_size': 0.3,
             'ghosts_mode': 'catch',
             'ghosts_travel':2.5,
-            'ghosts_velocity': 0.0001,
+            'ghosts_velocity': 0.001,
             'ghosts_contact':False,
 
             'constrain_ghost3Ds': False,
             'ghost3Ds_num': 2,
             'ghost3Ds_size': 0.2,
             'ghost3Ds_travel':2.0,
-            'ghost3Ds_velocity': 0.0001,
+            'ghost3Ds_velocity': 0.001,
             'ghost3Ds_z_range': [0.1,0.1],
             'ghost3Ds_contact':False,
         }
@@ -728,14 +728,14 @@ def configuration(task, args):
             'ghosts_size': 0.3,
             'ghosts_mode': 'catch',
             'ghosts_travel':2.5,
-            'ghosts_velocity': 0.0001,
+            'ghosts_velocity': 0.001,
             'ghosts_contact':False,
 
             'constrain_ghost3Ds': False,
             'ghost3Ds_num': 2,
             'ghost3Ds_size': 0.2,
             'ghost3Ds_travel':2.0,
-            'ghost3Ds_velocity': 0.0001,
+            'ghost3Ds_velocity': 0.001,
             'ghost3Ds_z_range': [0.1,0.1],
             'ghost3Ds_contact':False,
         }
