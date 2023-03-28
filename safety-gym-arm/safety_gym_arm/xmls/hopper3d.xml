@@ -52,8 +52,8 @@
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="50.0" joint="thigh_joint"/>
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="20.0" joint="leg_joint"/>
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="20.0" joint="foot_joint"/>
-    <motor gear="50" joint="right_hip_x" name="right_hip_x"/>
-    <motor gear="50" joint="right_hip_z" name="right_hip_z"/>
-    <motor gear="50" joint="right_hip_y" name="right_hip_y"/>
+    <motor gear="20" joint="right_hip_x" name="right_hip_x"/>
+    <motor gear="20" joint="right_hip_z" name="right_hip_z"/>
+    <motor gear="20" joint="right_hip_y" name="right_hip_y"/>
    </actuator>
 </mujoco>
