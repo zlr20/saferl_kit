@@ -7,6 +7,7 @@ import torch
 from torch.optim import Adam
 import gym
 import time
+from utils.logx import EpochLogger, setup_logger_kwargs, colorize
 from safety_gym.envs.engine import Engine as safety_gym_Engine
 from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
@@ -44,6 +45,9 @@ def replay(env_fn, model_path=None, video_name=None, max_epoch=1):
     ep_ret = 0
     time_step = 0
     epoch = 0
+    M = 0. # initialize the current maximum cost
+    o_aug = np.append(o, M) # augmented observation = observation + M 
+    first_step = True
     
     video_array = []
     
@@ -61,20 +65,39 @@ def replay(env_fn, model_path=None, video_name=None, max_epoch=1):
                 break
             ep_ret = 0
             o = env.reset()
+            M = 0. # initialize the current maximum cost 
+            # o_aug = o.append(M) # augmented observation = observation + M 
+            o_bug = np.append(o, M) # augmented observation = observation + M 
+            first_step = True
         
         try:
-            # import ipdb; ipdb.set_trace()
-            # a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
-            a, v, vc, logp, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, vc, logp, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
         except:
             print('please choose the correct environment, the observation space doesn''t match')
             raise NotImplementedError
         
 
-        next_o, r, d, _ = env.step(a)
+        # try:
+        #     next_o, r, d, info = env.step(a)
+        # except:
+        #     print('there are some abnormal scenarios observed!!!')
+        #     import ipdb; ipdb.set_trace()
+        # print(colorize(f'action at time step {time_step}, is {a}', 'yellow', bold=True))
+        next_o, r, d, info = env.step(a)
+        
+        if first_step:
+            # the first step of each episode 
+            cost_increase = info['cost']
+            M_next = info['cost']
+            first_step = False
+        else:
+            # the second and forward step of each episode
+            cost_increase = max(info['cost'] - M, 0)
+            M_next = M + cost_increase 
         
         # Update obs (critical!)
-        o = next_o
+        # o = next_o
+        o_aug = np.append(next_o, M_next)
 
         img_array = env.render(mode='rgb_array')
         video_array.append(img_array)

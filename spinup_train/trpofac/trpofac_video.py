@@ -63,7 +63,7 @@ def replay(env_fn, model_path=None, video_name=None, max_epoch=1):
             o = env.reset()
         
         try:
-            a, v, logp, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, vc, logp, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
         except:
             print('please choose the correct environment, the observation space doesn''t match')
             raise NotImplementedError
