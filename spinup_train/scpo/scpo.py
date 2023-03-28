@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class SCPOBuffer:
@@ -25,7 +25,7 @@ class SCPOBuffer:
     for calculating the advantages of state-action pairs.
     """
 
-    def __init__(self, obs_dim, act_dim, size, gamma=0.99, lam=0.95):
+    def __init__(self, obs_dim, act_dim, size, gamma=0.99, lam=0.95, cgamma=1.):
         self.obs_buf      = np.zeros(core.combined_shape(size, obs_dim), dtype=np.float32)
         self.act_buf      = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.adv_buf      = np.zeros(size, dtype=np.float32)
@@ -40,6 +40,7 @@ class SCPOBuffer:
         self.mu_buf       = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.logstd_buf   = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.gamma, self.lam = gamma, lam
+        self.cgamma = cgamma # there is no discount for the cost for MMDP 
         self.ptr, self.path_start_idx, self.max_size = 0, 0, size
 
     def store(self, obs, act, rew, val, logp, cost, cost_val, mu, logstd):
@@ -85,14 +86,14 @@ class SCPOBuffer:
         self.adv_buf[path_slice] = core.discount_cumsum(deltas, self.gamma * self.lam)
         
         # cost advantage calculation
-        cost_deltas = costs[:-1] + self.gamma * cost_vals[1:] - cost_vals[:-1]
-        self.adc_buf[path_slice] = core.discount_cumsum(cost_deltas, self.gamma * self.lam)
+        cost_deltas = costs[:-1] + self.cgamma * cost_vals[1:] - cost_vals[:-1]
+        self.adc_buf[path_slice] = core.discount_cumsum(cost_deltas, self.cgamma)
         
         # the next line computes rewards-to-go, to be targets for the value function
         self.ret_buf[path_slice] = core.discount_cumsum(rews, self.gamma)[:-1]
         
         # costs-to-go, targets for the cost value function
-        self.cost_ret_buf[path_slice] = core.discount_cumsum(costs, self.gamma)[:-1]
+        self.cost_ret_buf[path_slice] = core.discount_cumsum(costs, self.cgamma)[:-1]
         
         self.path_start_idx = self.ptr
 
@@ -286,7 +287,9 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Instantiate environment
     env = env_fn()
-    obs_dim = env.observation_space.shape
+    # import ipdb; ipdb.set_trace()
+    # obs_dim = env.observation_space.shape + 1 # this is especially designed for SCPO, since we require an additional M in the observation space 
+    obs_dim = (env.observation_space.shape[0]+1,) # this is especially designed for SCPO, since we require an additional M in the observation space 
     act_dim = env.action_space.shape
 
     # Create actor-critic module
@@ -392,13 +395,13 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         g = auto_grad(loss_pi, ac.pi) # get the loss flatten gradient evaluted at pi old 
         b = auto_grad(surr_cost, ac.pi) # get the cost flatten gradient evaluted at pi old
         
-        # get the Episoe cost
+        # get the Episode cost
         EpLen = logger.get_stats('EpLen')[0]
-        EpCost = logger.get_stats('EpCost')[0]
+        EpMaxCost = logger.get_stats('EpMaxCost')[0]
         
         # cost constraint linearization
-        # ! this needs double check, why target_cost / EpLen
-        c = EpCost - target_cost 
+        # ! the reason why here we rescale c by EpLen, is that we divide both side of the new policy cost by EpLen, then adc.mean() makes sense
+        c = EpMaxCost - target_cost 
         rescale  = EpLen
         c /= (rescale + EPS)
         
@@ -541,12 +544,14 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             print('reset environment is wrong, try next reset')
     ep_cost_ret, ep_cost = 0, 0
     cum_cost = 0
-    M = None # initialize the current maximum cost 
+    M = 0. # initialize the current maximum cost
+    o_aug = np.append(o, M) # augmented observation = observation + M 
+    first_step = True
 
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
-            a, v, vc, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, vc, logp, mu, logstd = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
             
             try: 
                 next_o, r, d, info = env.step(a)
@@ -556,14 +561,15 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 next_o, r, d = o, 0, True # observation will not change, no reward when episode done 
                 info['cost'] = 0 # no cost when episode done    
             
-            if not M:
+            if first_step:
                 # the first step of each episode 
-                d = info['cost']
-                M = info['cost']
+                cost_increase = info['cost'] # define the new observation and cost for Maximum Markov Decision Process
+                M_next = info['cost']
+                first_step = False
             else:
                 # the second and forward step of each episode
-                d = max(info['cost'] - M, 0)
-                M += d 
+                cost_increase = max(info['cost'] - M, 0) # define the new observation and cost for Maximum Markov Decision Process
+                M_next = M + cost_increase
              
             # Track cumulative cost over training
             cum_cost += info['cost']
@@ -573,11 +579,12 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             ep_len += 1
 
             # save and log
-            buf.store(o, a, r, v, logp, info['cost'], vc, mu, logstd)
+            buf.store(o_aug, a, r, v, logp, cost_increase, vc, mu, logstd)
             logger.store(VVals=v)
             
             # Update obs (critical!)
-            o = next_o
+            # o = next_o
+            o_aug = np.append(next_o, M_next)
 
             timeout = ep_len == max_ep_len
             terminal = d or timeout
@@ -588,14 +595,14 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     print('Warning: trajectory cut off by epoch at %d steps.'%ep_len, flush=True)
                 # if trajectory didn't reach terminal state, bootstrap value target
                 if timeout or epoch_ended:
-                    _, v, vc, _, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
+                    _, v, vc, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
                 else:
                     v = 0
                     vc = 0
                 buf.finish_path(v, vc)
                 if terminal:
                     # only save EpRet / EpLen / EpCostRet if trajectory finished
-                    logger.store(EpRet=ep_ret, EpLen=ep_len, EpCostRet=ep_cost_ret, EpCost=ep_cost)
+                    logger.store(EpRet=ep_ret, EpLen=ep_len, EpCostRet=ep_cost_ret, EpCost=ep_cost, EpMaxCost=M)
                 while True:
                     try:
                         o, ep_ret, ep_len = env.reset(), 0, 0
@@ -603,6 +610,10 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     except:
                         print('reset environment is wrong, try next reset')
                 ep_cost_ret, ep_cost = 0, 0
+                M = 0. # initialize the current maximum cost 
+                # o_aug = o.append(M) # augmented observation = observation + M 
+                o_bug = np.append(o, M) # augmented observation = observation + M 
+                first_step = True
 
         # Save model
         if ((epoch % save_freq == 0) or (epoch == epochs-1)) and model_save:
@@ -649,7 +660,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()    
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
-    parser.add_argument('--target_cost', type=float, default=0.1) # the cost limit for the environment
+    parser.add_argument('--target_cost', type=float, default=0.) # the cost limit for the environment
     parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for SCPO
     parser.add_argument('--cost_reduction', type=float, default=0.) # the cost_reduction limit when current policy is infeasible
     parser.add_argument('--hid', type=int, default=64)
@@ -659,7 +670,7 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='scpo')
+    parser.add_argument('--exp_name', type=str, default='scpo_fixed')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 

@@ -555,7 +555,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()    
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
-    parser.add_argument('--target_cost', type=float, default=0.1) # the cost limit for the environment
+    parser.add_argument('--target_cost', type=float, default=0.) # the cost limit for the environment
     parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for TRPOFAC
     parser.add_argument('--lam_lr', type=float, default=0.0001) # the learning rate for lambda
     parser.add_argument('--hid', type=int, default=64)

@@ -651,7 +651,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()    
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
-    parser.add_argument('--target_cost', type=float, default=0.1) # the cost limit for the environment
+    parser.add_argument('--target_cost', type=float, default=0.) # the cost limit for the environment
     parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for CPO
     parser.add_argument('--cost_reduction', type=float, default=0.) # the cost_reduction limit when current policy is infeasible
     parser.add_argument('--hid', type=int, default=64)
