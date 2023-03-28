@@ -5,7 +5,7 @@
     <geom conaffinity="1" condim="6" contype="1" margin="0.001" rgba="1 0 0 1" solimp=".8 .8 .01" solref=".02 1"/>
     <motor ctrllimited="true" ctrlrange="-.4 .4"/>
   </default>
-  <option timestep="0.002"/>
+  <option timestep="0.005"/>
 
   <worldbody>
     <geom name="floor" size="5 5 0.1" type="plane" condim="6"/>
@@ -18,13 +18,13 @@
       <joint armature="0" axis="0 1 0" damping="10" limited="false" name="rooty" pos="0 0 0" stiffness="0" type="slide"/>
       <geom friction="0.9" fromto="0 0 0.2 0 0 -0.2" name="robot_geom" size="0.05" type="capsule" />
       <body name="thigh" pos="0 0 -0.2">
-        <joint armature="0.01" axis="1 0 0" damping="5" name="right_hip_x" pos="0 0 0" range="-25 5" stiffness="10" type="hinge"/>
-        <joint armature="0.01" axis="0 0 1" damping="5" name="right_hip_z" pos="0 0 0" range="-60 35" stiffness="10" type="hinge"/>
-        <joint armature="0.01" axis="0 1 0" damping="5" name="right_hip_y" pos="0 0 0" range="-150 0" stiffness="10" type="hinge"/>
+        <joint armature="0.01" axis="1 0 0" damping="5" name="right_hip_x" pos="0 0 0" range="-20 20" stiffness="10" type="hinge"/>
+        <joint armature="0.01" axis="0 0 1" damping="5" name="right_hip_z" pos="0 0 0" range="-20 20" stiffness="10" type="hinge"/>
+        <joint armature="0.01" axis="0 1 0" damping="5" name="right_hip_y" pos="0 0 0" range="-20 20" stiffness="10" type="hinge"/>
         <joint axis="0 -1 0" name="thigh_joint" pos="0 0 0" range="-150 0" type="hinge"/>
         <geom friction="0.9" fromto="0 0 0 0 0 -0.45" name="thigh_geom" size="0.05" type="capsule"/>
         <body name="leg" pos="0 0 -0.7">
-          <joint axis="0 -1 0" name="leg_joint" pos="0 0 0.25" range="-150 0" type="hinge"/>
+          <joint axis="0 -1 0" name="leg_joint" pos="0 0 0.25" range="-100 0" type="hinge"/>
           <geom friction="0.9" fromto="0 0 0.25 0 0 -0.25" name="leg_geom" size="0.04" type="capsule"/>
           <body name="foot" pos="0.13 0 -0.35">
             <joint axis="0 -1 0" name="foot_joint" pos="-0.13 0 0.1" range="-45 45" type="hinge"/>
@@ -49,11 +49,11 @@
         <subtreeangmom body="robot" name="subtreeangmom"/>
    </sensor>
    <actuator>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="100.0" joint="thigh_joint"/>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="50.0" joint="leg_joint"/>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="50.0" joint="foot_joint"/>
-    <motor gear="100" joint="right_hip_x" name="right_hip_x"/>
-    <motor gear="100" joint="right_hip_z" name="right_hip_z"/>
-    <motor gear="100" joint="right_hip_y" name="right_hip_y"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="50.0" joint="thigh_joint"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="20.0" joint="leg_joint"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="20.0" joint="foot_joint"/>
+    <motor gear="50" joint="right_hip_x" name="right_hip_x"/>
+    <motor gear="50" joint="right_hip_z" name="right_hip_z"/>
+    <motor gear="50" joint="right_hip_y" name="right_hip_y"/>
    </actuator>
 </mujoco>

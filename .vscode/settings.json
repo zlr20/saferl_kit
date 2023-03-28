@@ -1,5 +1,6 @@
 {
     "python.analysis.extraPaths": [
         "./saferl_envs"
-    ]
+    ],
+    "ros.distro": "noetic"
 }

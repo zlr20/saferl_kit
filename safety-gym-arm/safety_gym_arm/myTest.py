@@ -16,7 +16,7 @@ def run_random(env_name):
         # 'goal_mode': 'track',
         # 'num_steps': 2000,
         'arm_link_n': 5,
-        'task': 'defense',
+        'task': 'goal',
         'push_object': 'ball',
         'observe_goal_lidar': False,
         # 'compass_shape': 2,
@@ -53,7 +53,7 @@ def run_random(env_name):
 
         'ghost3Ds_num': 2,
         'ghost3Ds_size': 0.2,
-        'ghost3Ds_mode':'avoid',
+        'ghost3Ds_mode':'catch',
         'ghost3Ds_travel':1.5,
         'ghost3Ds_velocity': 0.0001,
         'ghost3Ds_z_range': [0.1, 0.1],
@@ -73,9 +73,9 @@ def run_random(env_name):
     }
     
     config = {
-            'robot_base': 'xmls/point.xml',
+            'robot_base': 'xmls/hopper3d.xml',
             'goal_3D': False,
-            'task': 'defense',
+            'task': 'goal',
             'observe_ghosts': True,
             'observe_ghost3Ds': True,
             'observation_flatten': True,
@@ -86,18 +86,19 @@ def run_random(env_name):
             'constrain_indicator':False,
 
             'constrain_ghosts': True,
-            'ghosts_num': 2,
+            'ghosts_num': 3,
             'ghosts_size': 0.3,
             'ghosts_mode': 'catch',
             'ghosts_travel':2.5,
-            'ghosts_velocity': 0.0001,
+            'ghosts_velocity': 0.001,
             'ghosts_contact':False,
 
             'constrain_ghost3Ds': False,
-            'ghost3Ds_num': 2,
+            'ghost3Ds_num': 5,
             'ghost3Ds_size': 0.2,
             'ghost3Ds_travel':2.0,
-            'ghost3Ds_velocity': 0.0001,
+            'ghost3Ds_mode': 'catch',
+            'ghost3Ds_velocity': 0.001,
             'ghost3Ds_z_range': [0.1,0.1],
             'ghost3Ds_contact':False,
         }
@@ -121,15 +122,15 @@ def run_random(env_name):
             obs = env.reset()
         assert env.observation_space.contains(obs)
         act = env.action_space.sample()
-        act = np.zeros(act.shape)
+        # act = np.zeros(act.shape)
         
-        cnt = cnt + 1
-        if cnt % 400 > 200:
-            act[0] = 10.0
-            act[1] = 10.0
-        else:
-            act[0] = -10.0
-            act[1] = -10.0
+        # cnt = cnt + 1
+        # if cnt % 400 > 200:
+        #     act[0] = 10.0
+        #     act[1] = 10.0
+        # else:
+        #     act[0] = -10.0
+        #     act[1] = -10.0
 
         # if cnt != 0:
         #     key = getkey()

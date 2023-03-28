@@ -344,7 +344,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'ghost3Ds_contact_cost': 1.0,  # Cost for touching a gremlin
         'ghost3Ds_dist_cost': 1.0,  # Cost for being within distance threshold
         'ghost3Ds_velocity': 0.0001,
-        'ghost3Ds_mode': 'aviud',
+        'ghost3Ds_mode': 'avoid',
         'ghost3Ds_contact': True,
         'ghost3Ds_z_range': [1.0, 1.0],
 
@@ -1628,14 +1628,37 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 self.data.set_mocap_pos(name + 'mocap', pos)
         if self.ghosts_num: # self.constrain_gremlins:
             phase = float(self.data.time)
+            ghost_pos_last_dict = []
+            for i in range(self.ghosts_num):
+                name = f'ghost{i}'
+                ghost_origin = self.layout[name]
+                ghost_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
+                ghost_pos_last_dict.append(ghost_pos_mocap[:2] + ghost_origin)
+            ghost3D_pos_last_dict = []
+            for i in range(self.ghost3Ds_num):
+                name = f'ghost3D{i}'
+                ghost_origin = np.r_[self.layout[name], self._ghost3Ds_z[i]]
+                ghost_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
+                ghost3D_pos_last_dict.append(ghost_pos_mocap + ghost_origin)
             for i in range(self.ghosts_num):
                 name = f'ghost{i}'
                 ghost_origin = self.layout[name]
                 ghost_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
                 ghost_pos_last = ghost_pos_mocap[:2] + ghost_origin
+                target =  ghost_pos_mocap[:2]
+                for j in range(self.ghosts_num):
+                    dist_ij = ghost_pos_last_dict[j] - ghost_pos_last_dict[i]
+                    if j != i and np.sqrt(np.sum(np.square(dist_ij))) < 2 * self.ghosts_size:
+                        direction = - dist_ij / np.sqrt(np.sum(np.square(dist_ij)))
+                        target += self.ghosts_velocity*direction
+                for j in range(self.ghost3Ds_num):
+                    dist_ij = ghost3D_pos_last_dict[j][:2] - ghost_pos_last_dict[i]
+                    if np.sqrt(np.sum(np.square(dist_ij))) < self.ghost3Ds_size + self.ghosts_size:
+                        direction = - dist_ij / np.sqrt(np.sum(np.square(dist_ij)))
+                        target += self.ghosts_velocity*direction
                 if np.sqrt(np.sum(np.square(ghost_pos_last))) > self.ghosts_travel:
                     direction = - ghost_pos_last / np.sqrt(np.sum(np.square(ghost_pos_last)))
-                    target =  ghost_pos_mocap[:2] + self.ghosts_velocity*direction
+                    target += self.ghosts_velocity*direction
                 else:
                     if 'arm' in self.robot_base:
                         robot_pos = self.arm_end_pos
@@ -1644,7 +1667,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                     direction = robot_pos[:2] - ghost_pos_last
                     norm = np.sqrt(np.sum(np.square(direction)))
                     direction_norm = direction / norm
-                    if norm < 1:  
+                    if norm < 0.01:  
                         target = ghost_pos_mocap[:2]
                     else:
                         if self.ghosts_mode == 'catch':
@@ -1656,14 +1679,37 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 self.data.set_mocap_pos(name + 'mocap', pos)
         if self.ghost3Ds_num: # self.constrain_gremlins:
             phase = float(self.data.time)
+            ghost_pos_last_dict = []
+            for i in range(self.ghosts_num):
+                name = f'ghost{i}'
+                ghost_origin = self.layout[name]
+                ghost_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
+                ghost_pos_last_dict.append(ghost_pos_mocap[:2] + ghost_origin)
+            ghost3D_pos_last_dict = []
+            for i in range(self.ghost3Ds_num):
+                name = f'ghost3D{i}'
+                ghost_origin = np.r_[self.layout[name], self._ghost3Ds_z[i]]
+                ghost_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
+                ghost3D_pos_last_dict.append(ghost_pos_mocap + ghost_origin)
             for i in range(self.ghost3Ds_num):
                 name = f'ghost3D{i}'
                 ghost_origin = np.r_[self.layout[name], self._ghost3Ds_z[i]]
                 ghost_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
                 ghost_pos_last = ghost_pos_mocap + ghost_origin
+                target =  ghost_pos_mocap
+                for j in range(self.ghosts_num):
+                    dist_ij = np.r_[ghost_pos_last_dict[j], self._ghost3Ds_z[i]] - ghost3D_pos_last_dict[i]
+                    if np.sqrt(np.sum(np.square(dist_ij))) < self.ghost3Ds_size + self.ghosts_size:
+                        direction = - dist_ij / np.sqrt(np.sum(np.square(dist_ij)))
+                        target += self.ghost3Ds_velocity*direction
+                for j in range(self.ghost3Ds_num):
+                    dist_ij = ghost3D_pos_last_dict[j] - ghost3D_pos_last_dict[i]
+                    if j != i and np.sqrt(np.sum(np.square(dist_ij))) < 2 * self.ghost3Ds_size:
+                        direction = - dist_ij / np.sqrt(np.sum(np.square(dist_ij)))
+                        target += self.ghost3Ds_velocity*direction
                 if np.sqrt(np.sum(np.square(ghost_pos_last[:2]))) > self.ghost3Ds_travel:
                     direction = - ghost_pos_last[:2] / np.sqrt(np.sum(np.square(ghost_pos_last[:2])))
-                    target =  ghost_pos_mocap + np.r_[self.ghost3Ds_velocity*direction, 0]
+                    target += np.r_[self.ghost3Ds_velocity*direction, 0]
                 else:
                     if 'arm' in self.robot_base:
                         robot_pos = self.arm_end_pos
