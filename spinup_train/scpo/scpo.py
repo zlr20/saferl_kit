@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class SCPOBuffer:
@@ -286,9 +286,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     np.random.seed(seed)
 
     # Instantiate environment
-    env = env_fn()
-    # import ipdb; ipdb.set_trace()
-    # obs_dim = env.observation_space.shape + 1 # this is especially designed for SCPO, since we require an additional M in the observation space 
+    env = env_fn() 
     obs_dim = (env.observation_space.shape[0]+1,) # this is especially designed for SCPO, since we require an additional M in the observation space 
     act_dim = env.action_space.shape
 
@@ -322,6 +320,19 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
         return average_kl
     
+    # def compute_cost_pi(data, cur_pi):
+        # """
+        # Return the suggorate cost for current policy
+        # """
+        # obs, act, adc, logp_old = data['obs'], data['act'], data['adc'], data['logp']
+        
+        # # Surrogate cost function 
+        # pi, logp = cur_pi(obs, act)
+        # ratio = torch.exp(logp - logp_old)
+        # surr_cost = (ratio * adc).mean()
+        
+        # return surr_cost
+    
     def compute_cost_pi(data, cur_pi):
         """
         Return the suggorate cost for current policy
@@ -331,9 +342,12 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # Surrogate cost function 
         pi, logp = cur_pi(obs, act)
         ratio = torch.exp(logp - logp_old)
-        surr_cost = (ratio * adc).mean()
+        surr_cost = (ratio * adc).sum()
+        epochs = len(logger.epoch_dict['EpCost'])
+        surr_cost /= epochs # the average 
         
         return surr_cost
+        
         
     def compute_loss_pi(data, cur_pi):
         """
@@ -400,10 +414,35 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         EpMaxCost = logger.get_stats('EpMaxCost')[0]
         
         # cost constraint linearization
-        # ! the reason why here we rescale c by EpLen, is that we divide both side of the new policy cost by EpLen, then adc.mean() makes sense
-        c = EpMaxCost - target_cost 
-        rescale  = EpLen
-        c /= (rescale + EPS)
+        '''
+        original fixed target cost, in the context of mean adv of epochs
+        '''
+        # c = EpMaxCost - target_cost 
+        # rescale  = EpLen
+        # c /= (rescale + EPS)
+        
+        '''
+        fixed target cost, in the context of sum adv of epoch
+        '''
+        # c = EpMaxCost - target_cost
+        
+        '''
+        rescaled target cost, in the context of mean adv of epochs
+        '''
+        # max_adc = max(abs(max(data['adc'])), abs(min(data['adc'])))
+        # target_cost_lower_bound = target_cost - 4 * target_kl * max_adc * (1000 - (1 - (1 - target_kl)**1000)/target_kl)
+        # print(colorize(f'the maximum adc is {max_adc}, and the target_cost_lower_bound is {target_cost_lower_bound}', color='yellow', bold=True))
+        # c = EpMaxCost - target_cost_lower_bound.cpu().numpy()
+        # rescale  = EpLen
+        # c /= (rescale + EPS)
+        
+        '''
+        non-rescaled target cost, in the context of sum adv of epoch
+        '''
+        max_adc = max(abs(max(data['adc'])), abs(min(data['adc'])))
+        target_cost_lower_bound = target_cost - 4 * target_kl * max_adc * (1000 - (1 - (1 - target_kl)**1000)/target_kl)
+        print(colorize(f'the maximum adc is {max_adc}, and the target_cost_lower_bound is {target_cost_lower_bound}', color='yellow', bold=True))
+        c = EpMaxCost - target_cost_lower_bound.cpu().numpy()
         
         # core calculation for SCPO
         Hinv_g   = cg(Hx, g)             # Hinv_g = H \ g        
@@ -584,6 +623,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             
             # Update obs (critical!)
             # o = next_o
+            M = M_next
             o_aug = np.append(next_o, M_next)
 
             timeout = ep_len == max_ep_len
@@ -630,18 +670,21 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # Log info about epoch
         logger.log_tabular('Epoch', epoch)
-        logger.log_tabular('EpRet', with_min_and_max=True)
+        logger.log_tabular('EpRet', average_only=True)
         logger.log_tabular('EpLen', average_only=True)
-        logger.log_tabular('EpCostRet', with_min_and_max=True)
-        logger.log_tabular('EpCost', with_min_and_max=True)
+        logger.log_tabular('EpCostRet', average_only=True)
+        logger.log_tabular('EpCost', average_only=True)
+        logger.log_tabular('EpMaxCost', average_only=True)
         logger.log_tabular('CumulativeCost', cumulative_cost)
         logger.log_tabular('CostRate', cost_rate)
-        logger.log_tabular('VVals', with_min_and_max=True)
+        logger.log_tabular('VVals', average_only=True)
         logger.log_tabular('TotalEnvInteracts', (epoch+1)*steps_per_epoch)
         logger.log_tabular('LossPi', average_only=True)
         logger.log_tabular('LossV', average_only=True)
+        logger.log_tabular('LossCost', average_only=True)
         logger.log_tabular('DeltaLossPi', average_only=True)
         logger.log_tabular('DeltaLossV', average_only=True)
+        logger.log_tabular('DeltaLossCost', average_only=True)
         logger.log_tabular('Entropy', average_only=True)
         logger.log_tabular('KL', average_only=True)
         logger.log_tabular('Time', time.time()-start_time)
@@ -670,7 +713,7 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='scpo_fixed')
+    parser.add_argument('--exp_name', type=str, default='scpo_lbc')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 

@@ -419,18 +419,6 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
             a, v, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
-
-            # next_o, r, d, info = env.step(a)
-            
-            # # Include penalty on cost
-            # try:
-            #     c = info['cost']
-            # except:
-            #     if 'cost_exception' in info.keys():
-            #         c = 0. # this means the simulator will end early 
-            #     else:
-            #         print(colorize(f'the cost is not defined, this is the info contents: {info}', 'red', bold=False))
-            #         exit()
                     
             try: 
                 next_o, r, d, info = env.step(a)

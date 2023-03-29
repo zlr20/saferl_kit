@@ -1667,7 +1667,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                     direction = robot_pos[:2] - ghost_pos_last
                     norm = np.sqrt(np.sum(np.square(direction)))
                     direction_norm = direction / norm
-                    if norm < 0.01:  
+                    if norm < 1:  
                         target = ghost_pos_mocap[:2]
                     else:
                         if self.ghosts_mode == 'catch':

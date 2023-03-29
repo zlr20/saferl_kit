@@ -77,12 +77,6 @@ def replay(env_fn, model_path=None, video_name=None, max_epoch=1):
             raise NotImplementedError
         
 
-        # try:
-        #     next_o, r, d, info = env.step(a)
-        # except:
-        #     print('there are some abnormal scenarios observed!!!')
-        #     import ipdb; ipdb.set_trace()
-        # print(colorize(f'action at time step {time_step}, is {a}', 'yellow', bold=True))
         next_o, r, d, info = env.step(a)
         
         if first_step:

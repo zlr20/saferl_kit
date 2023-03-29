@@ -706,7 +706,7 @@ def configuration(task, args):
             'ghost3Ds_travel':2.0,
             'ghost3Ds_velocity': 0.001,
             'ghost3Ds_z_range': [0.1,0.1],
-            'ghost3Ds_contact':True,
+            'ghost3Ds_contact':False,
         }
 
     if task == 'Point_Defense_Ghost_2':
