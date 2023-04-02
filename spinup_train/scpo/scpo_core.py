@@ -57,6 +57,10 @@ def discount_cumsum(x, discount):
     return scipy.signal.lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
 
 
+def future_max(x):
+    return [np.max(x[i:]) for i in range(len(x))]
+
+
 class Actor(nn.Module):
 
     def _distribution(self, obs):
@@ -130,7 +134,32 @@ class MLPCritic(nn.Module):
 
     def forward(self, obs):
         return torch.squeeze(self.v_net(obs), -1) # Critical to ensure v has right shape.
+    
 
+# class MLPCostCritic(nn.Module):
+
+#     def __init__(self, obs_dim, hidden_sizes, activation):
+#         super().__init__()
+#         self.v_net = mlp([obs_dim - 1] + list(hidden_sizes) + [1], activation, output_activation=nn.Softplus)
+
+#     def forward(self, obs):
+#         M = obs[:,-1]
+#         # cost_increase = max(torch.squeeze(self.v_net(obs), -1) - M, 0)
+#         cost_increase = nn.ReLU(torch.squeeze(self.v_net(obs[:,:-1]), -1) - M)
+#         # return torch.squeeze(self.v_net(obs), -1) # Critical to ensure v has right shape.
+#         return cost_increase
+    
+    
+    
+class MLPMaxCostCritic(nn.Module):
+
+    def __init__(self, obs_dim, hidden_sizes, activation):
+        super().__init__()
+        self.v_net = mlp([obs_dim] + list(hidden_sizes) + [1], activation, output_activation=nn.Softplus)
+
+    def forward(self, obs):
+        return torch.squeeze(self.v_net(obs), -1) # Critical to ensure v has right shape.
+    
 
 
 class MLPActorCritic(nn.Module):
@@ -139,7 +168,7 @@ class MLPActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, 
                  hidden_sizes=(64,64), activation=nn.Tanh):
         super().__init__()
-        self.device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
         obs_dim = observation_space.shape[0] + 1 # this is especially designed for SCPO, since we require an additional M in the observation space 
 
@@ -153,7 +182,7 @@ class MLPActorCritic(nn.Module):
         self.v  = MLPCritic(obs_dim, hidden_sizes, activation).to(self.device)
         
         # build cost value function
-        self.vc  = MLPCritic(obs_dim, hidden_sizes, activation).to(self.device)
+        self.max_future_c  = MLPMaxCostCritic(obs_dim, hidden_sizes, activation).to(self.device)
 
     def step(self, obs):
         with torch.no_grad():
@@ -162,8 +191,8 @@ class MLPActorCritic(nn.Module):
             a = pi.sample()
             logp_a = self.pi._log_prob_from_distribution(pi, a)
             v = self.v(obs)
-            vc = self.vc(obs)
-        return a.cpu().numpy(), v.cpu().numpy(), vc.cpu().numpy(), logp_a.cpu().numpy(), pi.mean.cpu().numpy(), torch.log(pi.stddev).cpu().numpy()
+            max_future_c = self.max_future_c(obs)
+        return a.cpu().numpy(), v.cpu().numpy(), max_future_c.cpu().numpy(), logp_a.cpu().numpy(), pi.mean.cpu().numpy(), torch.log(pi.stddev).cpu().numpy()
 
     def act(self, obs):
         return self.step(obs)[0]

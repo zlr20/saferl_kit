@@ -47,7 +47,7 @@ def configuration(task, args):
             'lidar_num_bins': 16,
             #num setting
             'hazards_num': 1,
-            'hazards_size': args.hazards_size,
+            'hazards_size': 0.6,
             'vases_num': 0,
 
 
