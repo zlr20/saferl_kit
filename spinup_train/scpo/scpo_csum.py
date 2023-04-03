@@ -78,7 +78,6 @@ class SCPOBuffer:
         """
 
         path_slice = slice(self.path_start_idx, self.ptr)
-        self.path_slice_old = path_slice
         rews = np.append(self.rew_buf[path_slice], last_val)
         vals = np.append(self.val_buf[path_slice], last_val)
         costs = np.append(self.cost_buf[path_slice], last_cost)
@@ -98,9 +97,7 @@ class SCPOBuffer:
         self.ret_buf[path_slice] = core.discount_cumsum(rews, self.gamma)[:-1]
         
         # max future cost calculation 
-        import ipdb; ipdb.set_trace() 
         self.max_future_cost_buf[path_slice] = core.future_max(costs)[:-1]
-        _debug_cost_ret_buf = core.discount_cumsum(costs, self.gamma)[:-1]
         
         self.path_start_idx = self.ptr
 
@@ -183,7 +180,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=50, gamma=0.99, pi_lr=3e-4,
         vf_lr=1e-3, vcf_lr=1e-3, train_v_iters=80, train_vc_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, target_cost = 1.5, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, 
-        backtrack_iters=100, model_save=False, cost_reduction=0, model_path=None):
+        backtrack_iters=100, model_save=False, cost_reduction=0):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -298,12 +295,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     act_dim = env.action_space.shape
 
     # Create actor-critic module
-    if model_path:
-        print(colorize('found the existing model!! Now load the model', color='yellow', bold=True))
-        ac = torch.load(model_path)
-    else:
-        print(colorize('No model found!! Now create a new model', color='red', bold=True))
-        ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs).to(device)
+    ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs).to(device)
 
     # Sync params across processes
     sync_params(ac)
@@ -331,6 +323,19 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             torch.as_tensor(logstd_old, dtype=torch.float32), device=device)
         
         return average_kl
+    
+    # def compute_cost_pi(data, cur_pi):
+    #     """
+    #     Return the suggorate cost for current policy
+    #     """
+    #     obs, act, adc, logp_old = data['obs'], data['act'], data['adc'], data['logp']
+        
+    #     # Surrogate cost function 
+    #     pi, logp = cur_pi(obs, act)
+    #     ratio = torch.exp(logp - logp_old)
+    #     surr_cost = (ratio * adc).mean()
+        
+    #     return surr_cost
     
     def compute_cost_pi(data, cur_pi):
         """
@@ -387,7 +392,6 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     def update():
         data = buf.get()
-        import ipdb; ipdb.set_trace() 
 
         # log the loss objective and cost function and value function for old policy
         pi_l_old, pi_info_old = compute_loss_pi(data, ac.pi)
@@ -698,9 +702,8 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='scpo_debug')
+    parser.add_argument('--exp_name', type=str, default='scpo_ccritic')
     parser.add_argument('--model_save', action='store_true')
-    parser.add_argument('--model_path', type=str, default=None)
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
@@ -719,4 +722,4 @@ if __name__ == '__main__':
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs, target_cost=args.target_cost, 
-        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction, model_path=args.model_path)
+        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction)
