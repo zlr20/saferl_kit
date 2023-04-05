@@ -57,9 +57,13 @@ def discount_cumsum(x, discount):
     return scipy.signal.lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
 
 
+# def expected_cost(cost_ret, discount):
+#     expected_cost = [cost_ret[i] - discount*cost_ret[i+1] for i in range(len(cost_ret)-1)]
+#     assert len(expected_cost) == len(cost_ret) - 1 # expected cost length should be one step shorter than expected cost length
+#     return expected_cost
+
 def expected_cost(cost_ret, discount):
-    expected_cost = [cost_ret[i] - discount*cost_ret[i+1] for i in range(len(cost_ret)-1)]
-    assert len(expected_cost) == len(cost_ret) - 1 # expected cost length should be one step shorter than expected cost length
+    expected_cost = cost_ret[:-1] - discount*cost_ret[1:]
     return expected_cost
 
 def future_max(x):
@@ -162,7 +166,7 @@ class MLPActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, 
                  hidden_sizes=(64,64), activation=nn.Tanh):
         super().__init__()
-        self.device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
 
         obs_dim = observation_space.shape[0] + 1 # this is especially designed for SCPO, since we require an additional M in the observation space 
 
