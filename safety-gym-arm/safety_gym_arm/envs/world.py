@@ -397,6 +397,8 @@ class Robot:
         self.nv = self.sim.model.nv
         # Needed to figure out action space
         self.nu = self.sim.model.nu
+        if "drone" in base_path:
+            self.nu = 4
         # Needed to figure out observation space
         # See engine.py for an explanation for why we treat these separately
         self.hinge_pos_names = []

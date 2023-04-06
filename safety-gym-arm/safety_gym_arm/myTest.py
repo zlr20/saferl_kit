@@ -73,20 +73,25 @@ def run_random(env_name):
     }
     
     config = {
-            'robot_base': 'xmls/hopper3d.xml',
-            'goal_3D': False,
+            'robot_base': 'xmls/drone.xml',
+            'goal_3D': True,
+            'observe_goal_comp': True,
+            'compass_shape':3,
             'task': 'goal',
             'observe_ghosts': True,
             'observe_ghost3Ds': True,
             'observation_flatten': True,
             'lidar_max_dist': 4,
             'lidar_num_bins': 10,
-            'lidar_num_bins3D': 1,
+            'lidar_num_bins3D': 6,
             'render_lidar_radius': 0.25,
             'constrain_indicator':False,
-
+            'hazard3Ds_num': 10,
+            'hazard3Ds_size': 0.4,
+            'observe_hazard3Ds': True,
+            'constrain_hazard3Ds': True,
             'constrain_ghosts': True,
-            'ghosts_num': 3,
+            'ghosts_num': 0,
             'ghosts_size': 0.3,
             'ghosts_mode': 'catch',
             'ghosts_travel':2.5,
@@ -94,7 +99,7 @@ def run_random(env_name):
             'ghosts_contact':False,
 
             'constrain_ghost3Ds': False,
-            'ghost3Ds_num': 5,
+            'ghost3Ds_num': 0,
             'ghost3Ds_size': 0.2,
             'ghost3Ds_travel':2.0,
             'ghost3Ds_mode': 'catch',
@@ -123,49 +128,51 @@ def run_random(env_name):
         assert env.observation_space.contains(obs)
         act = env.action_space.sample()
         # act = np.zeros(act.shape)
-        
+        # print(act)
         # cnt = cnt + 1
         # if cnt % 400 > 200:
         #     act[0] = 10.0
         #     act[1] = 10.0
         # else:
         #     act[0] = -10.0
+
         #     act[1] = -10.0
 
         # if cnt != 0:
         #     key = getkey()
-        #     if key == "w":
-        #         act[0] = 1.0
-        #     if key == "s":
-        #         act[0] = -1.0
-        #     if key == "a":
-        #         act[1] = 1.0
-        #     if key == "d":
-        #         act[1] = -1.0
-        #     if key == "q":
-        #         act[2] = 1.0
-        #     if key == "e":
-        #         act[2] = -1.0  
+            # if key == "w":
+            #     act[0] = 1.0
+            # if key == "s":
+            #     act[0] = -1.0
+            # if key == "a":
+            #     act[1] = 1.0
+            # if key == "d":
+            #     act[1] = -1.0
+            # if key == "q":
+            #     act[2] = 1.0
+            # if key == "e":
+            #     act[2] = -1.0  
         # cnt = 1
         # if cnt  > 100:
-        #     act = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]  
+        #     act = [1.0, 1.0, -1.0, -1.0]  
         # if cnt > 200:
-        #     act = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        #     act = [1.0, 1.0, -1.0, -1.0]
         # if cnt > 300:
-        #     act = [0.0, -0.3, 0.0, 0.0, 0.0, 0.0]
+        #     act = [1.0, 1.0, -1.0, -1.0]
         # if cnt > 400:
-        #     act = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        #     act = [-1.0, -1.0, 1.0, 1.0]
         # if cnt > 500:
-        #     act = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        #     act = [-1.0, -1.0, 1.0, 1.0]
         # if cnt > 600:
-        #     act = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        #     act = [1.0, 1.0, 1.0, 1.0]
         # if cnt > 700:
-        #     act = [0.5, 0.0, 0.0, 0.0, 0.0, 0.0]
+        #     act = [0.0, 0.0, 0.0, 0.0]
         # if cnt > 800:
-        #     act = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        #     act = [0.0, 0.0, 1.0, 1.0]
         # if cnt > 900:
-        #     act = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
+        #     act = [0.0, 0.0, 0.0, 0.0]
+        # cnt += 1
+        # print(cnt, act)
         # act = [0.0, 0.0, 0.0]
         # if cnt  > 100:
         #     act = [0.5, 0.0, 0.0] 
