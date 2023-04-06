@@ -91,8 +91,8 @@ def get_datasets(logdir, condition=None):
             except:
                 print('Could not read from %s'%os.path.join(root,'progress.txt'))
                 continue
-            reward_performance = 'AverageTestEpRet' if 'AverageTestEpRet' in exp_data else 'AverageEpRet'
-            cost_performance = 'AverageTestEpCost' if 'AverageTestEpCost' in exp_data else 'AverageEpCost'
+            reward_performance = 'EpRet' if 'EpRet' in exp_data else 'AverageEpRet'
+            cost_performance = 'EpCost' if 'EpCost' in exp_data else 'AverageEpCost'
             cost_rate_performance = 'AverageTestCostRate' if 'AverageTestCostRate' in exp_data else 'CostRate'
             exp_data.insert(len(exp_data.columns),'Unit',unit)
             exp_data.insert(len(exp_data.columns),'Condition1',condition1)

@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class SCPOBuffer:
@@ -25,25 +25,26 @@ class SCPOBuffer:
     for calculating the advantages of state-action pairs.
     """
 
-    def __init__(self, obs_dim, act_dim, size, gamma=0.99, lam=0.95, cgamma=1., clam=0.95):
+    def __init__(self, obs_dim, act_dim, size, gamma=0.99, lam=0.95, cgamma=1.):
         self.obs_buf      = np.zeros(core.combined_shape(size, obs_dim), dtype=np.float32)
         self.act_buf      = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.adv_buf      = np.zeros(size, dtype=np.float32)
         self.rew_buf      = np.zeros(size, dtype=np.float32)
         self.ret_buf      = np.zeros(size, dtype=np.float32)
         self.val_buf      = np.zeros(size, dtype=np.float32)
+        self.cost_increase_buf     = np.zeros(size, dtype=np.float32)
+        self.cost_ret_val_buf = np.zeros(size, dtype=np.float32)
         self.cost_buf     = np.zeros(size, dtype=np.float32)
         self.cost_ret_buf = np.zeros(size, dtype=np.float32)
-        self.cost_val_buf = np.zeros(size, dtype=np.float32)
-        self.adc_buf      = np.zeros(size, dtype=np.float32)
+        self.adc_increase_buf   = np.zeros(size, dtype=np.float32)
         self.logp_buf     = np.zeros(size, dtype=np.float32)
         self.mu_buf       = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.logstd_buf   = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.gamma, self.lam = gamma, lam
-        self.cgamma, self.clam = cgamma, clam # there is no discount for the cost for MMDP 
+        self.cgamma = cgamma # there is no discount for the cost for MMDP 
         self.ptr, self.path_start_idx, self.max_size = 0, 0, size
 
-    def store(self, obs, act, rew, val, logp, cost, cost_val, mu, logstd):
+    def store(self, obs, act, rew, val, logp, cost_increase, cost_ret_val, mu, logstd, cost):
         """
         Append one timestep of agent-environment interaction to the buffer.
         """
@@ -53,13 +54,14 @@ class SCPOBuffer:
         self.rew_buf[self.ptr]      = rew
         self.val_buf[self.ptr]      = val
         self.logp_buf[self.ptr]     = logp
-        self.cost_buf[self.ptr]     = cost
-        self.cost_val_buf[self.ptr] = cost_val
+        self.cost_increase_buf[self.ptr]     = cost_increase
+        self.cost_ret_val_buf[self.ptr] = cost_ret_val
         self.mu_buf[self.ptr]       = mu
         self.logstd_buf[self.ptr]   = logstd
+        self.cost_buf[self.ptr]     = cost
         self.ptr += 1
 
-    def finish_path(self, last_val=0, last_cost_val=0):
+    def finish_path(self, last_val=0, last_cost_increase_val=0, last_cost_ret_val=0):
         """
         Call this at the end of a trajectory, or when one gets cut off
         by an epoch ending. This looks back in the buffer to where the
@@ -78,22 +80,34 @@ class SCPOBuffer:
         path_slice = slice(self.path_start_idx, self.ptr)
         rews = np.append(self.rew_buf[path_slice], last_val)
         vals = np.append(self.val_buf[path_slice], last_val)
-        costs = np.append(self.cost_buf[path_slice], last_cost_val)
-        cost_vals = np.append(self.cost_val_buf[path_slice], last_cost_val)
+        costs = np.append(self.cost_buf[path_slice], last_cost_ret_val)
+        cost_ret_vals = np.append(self.cost_ret_val_buf[path_slice], last_cost_ret_val)
+        cost_increases = np.append(self.cost_increase_buf[path_slice], last_cost_increase_val)
+        past_maxs = self.obs_buf[path_slice,-1] # the last dimension of observation 
         
         # the next two lines implement GAE-Lambda advantage calculation
         deltas = rews[:-1] + self.gamma * vals[1:] - vals[:-1]
         self.adv_buf[path_slice] = core.discount_cumsum(deltas, self.gamma * self.lam)
         
-        # cost advantage calculation
-        cost_deltas = costs[:-1] + self.cgamma * cost_vals[1:] - cost_vals[:-1]
-        self.adc_buf[path_slice] = core.discount_cumsum(cost_deltas, self.cgamma * self.clam)
+        # cost_increase advantage calculation
+        #! cost increase advantage calculation 
+        # ! need compute the cost increase vals 
+        # first recover the expected cost for each path 
+        expected_cost  = core.expected_cost(cost_ret_vals, self.gamma)
+        expected_future_max_cost = core.future_max(expected_cost)
+        # expected_cost_increase_vals = [max(expected_future_max_cost[i] - past_maxs[i], 0) for i in range(len(expected_future_max_cost))]
+        expected_cost_increase_vals = np.clip(np.array(expected_future_max_cost) - np.array(past_maxs),0,np.inf)
+        # just set last expected_cost_increase_vals as 0 
+        expected_cost_increase_vals = np.append(expected_cost_increase_vals, 0)
+        
+        cost_increase_deltas = cost_increases[:-1] + self.cgamma * expected_cost_increase_vals[1:] - expected_cost_increase_vals[:-1]
+        self.adc_increase_buf[path_slice] = core.discount_cumsum(cost_increase_deltas, self.cgamma * self.lam) # the GAE-Lambda advantage
         
         # the next line computes rewards-to-go, to be targets for the value function
         self.ret_buf[path_slice] = core.discount_cumsum(rews, self.gamma)[:-1]
         
-        # costs-to-go, targets for the cost value function
-        self.cost_ret_buf[path_slice] = core.discount_cumsum(costs, self.cgamma)[:-1]
+        # cost-to-go with discount, to be targets for the value function 
+        self.cost_ret_buf[path_slice] = core.discount_cumsum(costs, self.gamma)[:-1]
         
         self.path_start_idx = self.ptr
 
@@ -108,15 +122,15 @@ class SCPOBuffer:
         # the next two lines implement the advantage normalization trick
         adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
         self.adv_buf = (self.adv_buf - adv_mean) / adv_std
-        # center cost advantage, but don't scale
-        adc_mean, adc_std = mpi_statistics_scalar(self.adc_buf)
-        self.adc_buf = (self.adc_buf - adc_mean)
+        # center cost_increase advantage, but don't scale
+        adc_increase_mean, adc_increase_std = mpi_statistics_scalar(self.adc_increase_buf)
+        self.adc_increase_buf = (self.adc_increase_buf - adc_increase_mean)
         data = dict(obs=torch.FloatTensor(self.obs_buf).to(device), 
                     act=torch.FloatTensor(self.act_buf).to(device), 
                     ret=torch.FloatTensor(self.ret_buf).to(device),
                     adv=torch.FloatTensor(self.adv_buf).to(device),
                     cost_ret=torch.FloatTensor(self.cost_ret_buf).to(device),
-                    adc=torch.FloatTensor(self.adc_buf).to(device),
+                    adc_increase=torch.FloatTensor(self.adc_increase_buf).to(device),
                     logp=torch.FloatTensor(self.logp_buf).to(device),
                     mu=torch.FloatTensor(self.mu_buf).to(device),
                     logstd=torch.FloatTensor(self.logstd_buf).to(device))
@@ -324,12 +338,12 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         """
         Return the suggorate cost for current policy
         """
-        obs, act, adc, logp_old = data['obs'], data['act'], data['adc'], data['logp']
+        obs, act, adc_increase, logp_old = data['obs'], data['act'], data['adc_increase'], data['logp']
         
         # Surrogate cost function 
         pi, logp = cur_pi(obs, act)
         ratio = torch.exp(logp - logp_old)
-        surr_cost = (ratio * adc).sum()
+        surr_cost = (ratio * adc_increase).sum()
         epochs = len(logger.epoch_dict['EpCost'])
         surr_cost /= epochs # the average 
         
@@ -359,7 +373,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         obs, ret = data['obs'], data['ret']
         return ((ac.v(obs) - ret)**2).mean()
     
-    # Set up function for computing cost loss 
+    # Set up function for computing future max cost loss 
     def compute_loss_vc(data):
         obs, cost_ret = data['obs'], data['cost_ret']
         return ((ac.vc(obs) - cost_ret)**2).mean()
@@ -416,7 +430,6 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # core calculation for SCPO
         Hinv_g   = cg(Hx, g)             # Hinv_g = H \ g        
         approx_g = Hx(Hinv_g)           # g
-        # q        = np.clip(Hinv_g.T @ approx_g, 0.0, None)  # g.T / H @ g
         q        = Hinv_g.T @ approx_g
         
         # solve QP
@@ -471,11 +484,9 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             f_a = lambda lam : -0.5 * (A / (lam+EPS) + B * lam) - r*c/(s+EPS)
             f_b = lambda lam : -0.5 * (q / (lam+EPS) + 2 * target_kl * lam)
             lam = lam_a if f_a(lam_a) >= f_b(lam_b) else lam_b
-            # nu = max(0, lam * c - r) / (np.clip(s,0.,None)+EPS)
             nu = max(0, lam * c - r) / (s+EPS)
         else:
             lam = 0
-            # nu = np.sqrt(2 * target_kl / (np.clip(s,0.,None)+EPS))
             nu = np.sqrt(2 * target_kl / (s+EPS))
             
         # normal step if optim_case > 0, but for optim_case =0,
@@ -587,7 +598,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             ep_len += 1
 
             # save and log
-            buf.store(o_aug, a, r, v, logp, cost_increase, vc, mu, logstd)
+            buf.store(o_aug, a, r, v, logp, cost_increase, vc, mu, logstd, info['cost'])
             logger.store(VVals=v)
             
             # Update obs (critical!)
@@ -608,7 +619,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 else:
                     v = 0
                     vc = 0
-                buf.finish_path(v, vc)
+                buf.finish_path(v, last_cost_ret_val=vc)
                 if terminal:
                     # only save EpRet / EpLen / EpCostRet if trajectory finished
                     logger.store(EpRet=ep_ret, EpLen=ep_len, EpCostRet=ep_cost_ret, EpCost=ep_cost, EpMaxCost=M)
@@ -682,7 +693,7 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='scpo')
+    parser.add_argument('--exp_name', type=str, default='scpo_csum')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 
@@ -691,7 +702,6 @@ if __name__ == '__main__':
     exp_name = args.task + '_' + args.exp_name \
                 + '_' + 'kl' + str(args.target_kl) \
                 + '_' + 'target_cost' + str(args.target_cost) 
-                # + '_' + 'step' + str(args.steps)
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model
