@@ -905,5 +905,44 @@ def configuration(task, args):
             'hazards_size': 0.30,
             'vases_num': 0,
         }
+        
+        
+    if task == 'Drone_goal_4':
+        config = {
+            'robot_base': 'xmls/drone.xml',
+            'goal_3D': True,
+            'goal_size': 0.5,
+            'observe_goal_comp': True,
+            'compass_shape':3,
+            'task': 'goal',
+            'observe_ghosts': True,
+            'observe_ghost3Ds': True,
+            'observation_flatten': True,
+            'lidar_max_dist': 4,
+            'lidar_num_bins': 10,
+            'lidar_num_bins3D': 6,
+            'render_lidar_radius': 0.25,
+            'constrain_indicator':False,
+            'hazard3Ds_num': 4,
+            'hazard3Ds_size': 0.3,
+            'observe_hazard3Ds': True,
+            'constrain_hazard3Ds': True,
+            'constrain_ghosts': True,
+            'ghosts_num': 0,
+            'ghosts_size': 0.3,
+            'ghosts_mode': 'catch',
+            'ghosts_travel':2.5,
+            'ghosts_velocity': 0.001,
+            'ghosts_contact':False,
+
+            'constrain_ghost3Ds': False,
+            'ghost3Ds_num': 0,
+            'ghost3Ds_size': 0.2,
+            'ghost3Ds_travel':2.0,
+            'ghost3Ds_mode': 'catch',
+            'ghost3Ds_velocity': 0.001,
+            'ghost3Ds_z_range': [0.1,0.1],
+            'ghost3Ds_contact':False,
+        }
      
     return config
