@@ -73,20 +73,24 @@ def run_random(env_name):
     }
     
     config = {
-            'robot_base': 'xmls/drone.xml',
+            'robot_base': 'xmls/point.xml',
+            'robot_keepout': 0.3,
+            'robot_keepout_range': 0.1,
+            'num_steps': 100,
+            # 'robot_locations':[(0.0,0.0)],
             'goal_3D': True,
             'observe_goal_comp': True,
             'compass_shape':3,
             'task': 'goal',
             'observe_ghosts': True,
-            'observe_ghost3Ds': True,
+            'observe_ghosts': True,
             'observation_flatten': True,
             'lidar_max_dist': 4,
             'lidar_num_bins': 10,
             'lidar_num_bins3D': 6,
             'render_lidar_radius': 0.25,
             'constrain_indicator':False,
-            'hazard3Ds_num': 10,
+            'hazards_num': 1,
             'hazard3Ds_size': 0.4,
             'observe_hazard3Ds': True,
             'constrain_hazard3Ds': True,
@@ -127,7 +131,7 @@ def run_random(env_name):
             obs = env.reset()
         assert env.observation_space.contains(obs)
         act = env.action_space.sample()
-        # act = np.zeros(act.shape)
+        act = np.zeros(act.shape)
         # print(act)
         # cnt = cnt + 1
         # if cnt % 400 > 200:
