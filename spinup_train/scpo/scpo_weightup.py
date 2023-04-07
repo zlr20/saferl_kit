@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class SCPOBuffer:
@@ -94,11 +94,6 @@ class SCPOBuffer:
         
         # costs-to-go, targets for the cost value function
         self.cost_ret_buf[path_slice] = core.discount_cumsum(costs, self.cgamma)[:-1]
-        if max(costs) > 0:
-            # there is some cost 
-            import ipdb; ipdb.set_trace()
-        
-        
         
         self.path_start_idx = self.ptr
 
@@ -181,7 +176,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=50, gamma=0.99, pi_lr=3e-4,
         vf_lr=1e-3, vcf_lr=1e-3, train_v_iters=80, train_vc_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, target_cost = 1.5, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, 
-        backtrack_iters=100, model_save=False, cost_reduction=0, model_path=None):
+        backtrack_iters=100, model_save=False, cost_reduction=0):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -296,12 +291,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     act_dim = env.action_space.shape
 
     # Create actor-critic module
-    if model_path:
-        print(colorize('found the existing model!! Now load the model', color='yellow', bold=True))
-        ac = torch.load(model_path).to(device)
-    else:
-        print(colorize('No model found!! Now create a new model', color='red', bold=True))
-        ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs).to(device)
+    ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs).to(device)
 
     # Sync params across processes
     sync_params(ac)
@@ -368,7 +358,6 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     def compute_loss_v(data):
         obs, ret = data['obs'], data['ret']
         return ((ac.v(obs) - ret)**2).mean()
-    
     
     def compute_loss_vc(data):
         obs, cost_ret = data['obs'], data['cost_ret']
@@ -708,16 +697,16 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='debug')
+    parser.add_argument('--exp_name', type=str, default='scpo_downsample')
     parser.add_argument('--model_save', action='store_true')
-    parser.add_argument('--model_path', type=str, default=None)
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
     
     exp_name = args.task + '_' + args.exp_name \
                 + '_' + 'kl' + str(args.target_kl) \
-                + '_' + 'target_cost' + str(args.target_cost)
+                + '_' + 'target_cost' + str(args.target_cost) 
+                # + '_' + 'step' + str(args.steps)
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model
@@ -728,4 +717,4 @@ if __name__ == '__main__':
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs, target_cost=args.target_cost, 
-        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction, model_path=args.model_path)
+        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction)
