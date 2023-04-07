@@ -15,12 +15,12 @@
             <!-- <geom name="camera" pos="-.2 0 0" type="sphere" size=".05"/> -->
             <!-- <freejoint name="robot"/> -->
             <!-- <joint type="ball" name="joint_1"/> -->
-            <joint armature="0" axis="1 0 0" damping="0.1" limited="false" name="slidex" pos="0 0 0" stiffness="0" type="slide"/>
-            <joint armature="0" axis="0 1 0" damping="0.1" limited="false" name="slidey" pos="0 0 0" stiffness="0" type="slide"/>
-            <joint armature="0" axis="0 0 1" damping="0.1" limited="false" name="slidez" pos="0 0 0" stiffness="0" type="slide"/>
-            <joint armature="0" axis="1 0 0" damping="0.1" limited="false" name="hingex" pos="0 0 0" stiffness="0" type="hinge"/>
-            <joint armature="0" axis="0 1 0" damping="0.1" limited="false" name="hingey" pos="0 0 0" stiffness="0" type="hinge"/>
-            <joint armature="0" axis="0 0 1" damping="0.1" limited="false" name="hingez" pos="0 0 0" stiffness="0" type="hinge"/>
+            <joint armature="0" axis="1 0 0" damping="0.5" limited="false" name="slidex" pos="0 0 0" stiffness="0" type="slide"/>
+            <joint armature="0" axis="0 1 0" damping="0.5" limited="false" name="slidey" pos="0 0 0" stiffness="0" type="slide"/>
+            <joint armature="0" axis="0 0 1" damping="0.2" limited="false" name="slidez" pos="0 0 0" stiffness="0" type="slide"/>
+            <joint armature="0" axis="1 0 0" damping="0.2" limited="false" name="hingex" pos="0 0 0" stiffness="0" type="hinge"/>
+            <joint armature="0" axis="0 1 0" damping="0.2" limited="false" name="hingey" pos="0 0 0" stiffness="0" type="hinge"/>
+            <joint armature="0" axis="0 0 1" damping="0.2" limited="false" name="hingez" pos="0 0 0" stiffness="0" type="hinge"/>
             <geom name="robot" pos="0 0 0" size="0.1" type="sphere"/>
             <geom fromto="0.3 0.0 0.0 -0.3 0.0 0.0" name="body1" size="0.03" type="capsule"/>
             <geom fromto="0.0 0.3 0.0 0.0 -0.3 0.0" name="body2" size="0.03" type="capsule"/>    

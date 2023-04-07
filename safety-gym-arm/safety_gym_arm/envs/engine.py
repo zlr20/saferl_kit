@@ -117,6 +117,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'robot_placements': None,  # Robot placements list (defaults to full extents)
         'robot_locations': [],  # Explicitly place robot XY coordinate
         'robot_keepout': 0.4,  # Needs to be set to match the robot XML used
+        'robot_keepout_range': None,
         'robot_base': 'xmls/car.xml',  # Which robot XML to use as the base
         'robot_rot': None,  # Override robot starting angle
 
@@ -684,6 +685,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         layout = {}
         for name, (placements, keepout) in self.placements.items():
             conflicted = True
+            if name == 'robot':
+                continue
             for _ in range(100):
                 xy = self.draw_placement(placements, keepout)
                 if 'arm' in self.robot_base and 'hazard3D' in name and np.sqrt(np.sum(np.square(xy))) > 1.0:
@@ -694,6 +697,30 @@ class Engine(gym.Env, gym.utils.EzPickle):
             if conflicted:
                 return False
             layout[name] = xy
+        
+        for name, (placements, keepout) in self.placements.items():
+            conflicted = True
+            if name != 'robot':
+                continue
+            for _ in range(100):
+                xy = self.draw_placement(placements, keepout)
+                for other_name, other_xy in layout.items():
+                    if 'hazard' in other_name:
+                        other_keepout = self.placements[other_name][1]
+                        dist = np.sqrt(np.sum(np.square(xy - other_xy)))
+                        dist_lb = other_keepout + self.placements_margin + keepout
+                        dist_ub = np.inf
+                        if self.robot_keepout_range != None:
+                            dist_ub = dist_lb + self.robot_keepout_range
+                        if dist >= dist_lb and dist <= dist_ub:
+                            conflicted = False
+                            break
+                if conflicted == False:
+                    break
+            if conflicted:
+                return False
+            layout[name] = xy
+
         self.layout = layout
         return True
 
@@ -1779,7 +1806,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
             torque = [0, 0, 0]
             for i in range(4):
                 propeller = 'p' + str(i + 1)
-                force = [0, 0, f/4 + action[i]*1e-2]
+                force = [0, 0, f/4 + action[i]*1e-1]
                 force = np.array(force).reshape(3,1)
                 force = R@force
                 force = [force[i,0] for i in range(3)]
