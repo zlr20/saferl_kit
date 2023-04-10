@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class SCPOBuffer:
@@ -176,7 +176,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=50, gamma=0.99, pi_lr=3e-4,
         vf_lr=1e-3, vcf_lr=1e-3, train_v_iters=80, train_vc_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, target_cost = 1.5, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, 
-        backtrack_iters=100, model_save=False, cost_reduction=0):
+        backtrack_iters=100, model_save=False, cost_reduction=0, env_noconti=True):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -359,7 +359,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         obs, ret = data['obs'], data['ret']
         return ((ac.v(obs) - ret)**2).mean()
     
-    def compute_loss_vc(data):
+    def compute_loss_vc(data, multi=10):
         obs, cost_ret = data['obs'], data['cost_ret']
         
         # down sample the imbalanced data 
@@ -370,10 +370,15 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         obs_zero = obs[cost_ret == 0]
         
         # frac = len(cost_ret_positive) / len(cost_ret_zero) 
-        aug_frac_weight = len(cost_ret_zero) / len(cost_ret_positive)
-        total_loss =  ((ac.vc(obs_zero) - cost_ret_zero).sum()\
-                        + aug_frac_weight * (ac.vc(cost_ret_positive) - obs_positive).sum()) \
-                            / (len(cost_ret_zero) + aug_frac_weight*len(cost_ret_positive))
+        if len(cost_ret_positive) > 0:
+            # there is some nonzero cost ret
+            aug_frac_weight = len(cost_ret_zero) / len(cost_ret_positive)
+            total_loss =  ((ac.vc(obs_zero) - cost_ret_zero).sum()\
+                            + multi * aug_frac_weight * (ac.vc(obs_positive) - cost_ret_positive).sum()) \
+                                / (len(cost_ret_zero) + multi*aug_frac_weight*len(cost_ret_positive))
+        else:
+            # no nonzero cost ret needs to be scaled up 
+            total_loss = ((ac.v(obs) - cost_ret)**2).mean()
             
         # downsample cost return zero 
         return total_loss
@@ -618,11 +623,27 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     print('Warning: trajectory cut off by epoch at %d steps.'%ep_len, flush=True)
                 # if trajectory didn't reach terminal state, bootstrap value target
                 if timeout or epoch_ended:
-                    _, v, _, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
-                    vc = 0 # note that since we are using maximum cost, the overestimation will hurt performance badly, let's just set vc = 0
+                    if env_noconti:
+                        _, v, _, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
+                        vc = 0 # note that since we are using maximum cost, the overestimation will hurt performance badly, let's just set vc = 0
+                    else:
+                        # to eliminate the overestimate of the maximum future cost increase, we need to first set vc as zero in the first few epochs
+                        _, v, vc, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
+                        if epoch > epochs/20:
+                            pass
+                        else:
+                            vc = 0 
                 else:
-                    v = 0
-                    vc = 0
+                    if env_noconti:
+                        v = 0
+                        vc = 0
+                    else:
+                        v = 0 
+                        # to eliminate the overestimate of the maximum future cost increase, we need to first set vc as zero in the first few epochs
+                        if epoch > epochs/20:
+                            _, _, vc, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
+                        else:
+                            vc = 0
                 buf.finish_path(v, vc)
                 if terminal:
                     # only save EpRet / EpLen / EpCostRet if trajectory finished
@@ -697,7 +718,7 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='scpo_downsample')
+    parser.add_argument('--exp_name', type=str, default='scpo_weightup10')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 
@@ -711,10 +732,15 @@ if __name__ == '__main__':
 
     # whether to save model
     # model_save = True if args.model_save else False
+    if 'noconti' in args.task:
+        env_noconti = True
+    else:
+        env_noconti = False
+    
     model_save = True
 
     scpo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs, target_cost=args.target_cost, 
-        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction)
+        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction, env_noconti=env_noconti)
