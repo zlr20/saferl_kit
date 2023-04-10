@@ -370,15 +370,21 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         cost_ret_zero = cost_ret[cost_ret == 0]
         obs_zero = obs[cost_ret == 0]
         
-        frac = len(cost_ret_positive) / len(cost_ret_zero) 
-        if frac < 1.:# Fraction of elements to keep
-            indices = np.random.choice(len(cost_ret_zero), size=int(len(cost_ret_zero)*frac), replace=False)
-            cost_ret_zero_downsample = cost_ret_zero[indices]
-            obs_zero_downsample = obs_zero[indices]
+        if len(cost_ret_zero) > 0:
+            frac = len(cost_ret_positive) / len(cost_ret_zero) 
             
-            # concatenate 
-            obs_downsample = torch.cat((obs_positive, obs_zero_downsample), dim=0)
-            cost_ret_downsample = torch.cat((cost_ret_positive, cost_ret_zero_downsample), dim=0)
+            if frac < 1. :# Fraction of elements to keep
+                indices = np.random.choice(len(cost_ret_zero), size=int(len(cost_ret_zero)*frac), replace=False)
+                cost_ret_zero_downsample = cost_ret_zero[indices]
+                obs_zero_downsample = obs_zero[indices]
+                
+                # concatenate 
+                obs_downsample = torch.cat((obs_positive, obs_zero_downsample), dim=0)
+                cost_ret_downsample = torch.cat((cost_ret_positive, cost_ret_zero_downsample), dim=0)
+            else:
+                # no need to downsample 
+                obs_downsample = obs
+                cost_ret_downsample = cost_ret
         else:
             # no need to downsample 
             obs_downsample = obs
@@ -627,13 +633,18 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     print('Warning: trajectory cut off by epoch at %d steps.'%ep_len, flush=True)
                 # if trajectory didn't reach terminal state, bootstrap value target
                 if timeout or epoch_ended:
-                    # _, v, _, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
-                    # vc = 0 # note that since we are using maximum cost, the overestimation will hurt performance badly, let's just set vc = 0
-                    _, v, vc, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
+                    if epoch > epochs/10:
+                        _, v, vc, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
+                    else:
+                        _, v, _, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
+                        vc = 0 # note that since we are using maximum cost, the overestimation will hurt performance badly, let's just set vc = 0
                 else:
-                    v = 0
-                    # vc = 0
-                    _, _, vc, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
+                    if epoch > epochs/10:
+                        v = 0
+                        _, _, vc, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
+                    else:
+                        v = 0
+                        vc = 0
                 buf.finish_path(v, vc)
                 if terminal:
                     # only save EpRet / EpLen / EpCostRet if trajectory finished
