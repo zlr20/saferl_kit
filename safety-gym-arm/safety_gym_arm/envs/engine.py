@@ -117,7 +117,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'robot_placements': None,  # Robot placements list (defaults to full extents)
         'robot_locations': [],  # Explicitly place robot XY coordinate
         'robot_keepout': 0.4,  # Needs to be set to match the robot XML used
-        'robot_keepout_range': None,
+        'robot_keepout_range': None, # The range of keepout between the robot and hazard
         'robot_base': 'xmls/car.xml',  # Which robot XML to use as the base
         'robot_rot': None,  # Override robot starting angle
 
@@ -1788,7 +1788,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         assert not self.done, 'Environment must be reset before stepping'
 
         info = {}
-        
+
         # Set action
         if "drone" in self.robot_base:
             action = np.clip(action, -1.0, 1.0)
