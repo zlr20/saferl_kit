@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class SCPOBuffer:
@@ -719,7 +719,7 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='scpo_downsample_fixed;')
+    parser.add_argument('--exp_name', type=str, default='scpo_downsample_fixed')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 

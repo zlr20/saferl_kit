@@ -359,7 +359,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         obs, ret = data['obs'], data['ret']
         return ((ac.v(obs) - ret)**2).mean()
     
-    def compute_loss_vc(data, multi=10):
+    def compute_loss_vc(data, multi=100):
         obs, cost_ret = data['obs'], data['cost_ret']
         
         # down sample the imbalanced data 
