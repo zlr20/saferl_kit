@@ -10,7 +10,7 @@ from getkey import getkey, keys
 def run_random(env_name):
     # env = gym.make(env_name)
     config = {
-        'robot_base': 'xmls/walker3d_tiny.xml',
+        'robot_base': 'xmls/swimmer_tiny.xml',
         # 'goal_3D': True,
         # 'goal_travel': 1.5,
         # 'goal_mode': 'track',
@@ -41,7 +41,8 @@ def run_random(env_name):
         'render_lidar_radius': 0.25,
         'hazard3Ds_num': 0,
         # 'hazard3Ds_locations':[(0.0,1.5)],
-        'hazards_num': 0,
+        'hazards_num': 8,
+        'hazards_keepout':0.5,
         'vases_num': 0,
         # 'vases_size': 0.2,
         # 'robot_locations':[(0.0,0.0)],
@@ -60,7 +61,7 @@ def run_random(env_name):
         'ghost3Ds_contact':False,
 
         'constrain_ghosts': True,
-        'ghosts_num': 8,
+        'ghosts_num': 0,
         'ghosts_size': 0.3,
         'ghosts_mode': 'catch',
         'ghosts_travel':1.5,
