@@ -10,8 +10,8 @@ from getkey import getkey, keys
 def run_random(env_name):
     # env = gym.make(env_name)
     config = {
-        'robot_base': 'xmls/point.xml',
-        'goal_3D': False,
+        'robot_base': 'xmls/drone.xml',
+        'goal_3D': True,
         # 'goal_travel': 1.5,
         # 'goal_mode': 'track',
         # 'num_steps': 2000,
@@ -72,8 +72,8 @@ def run_random(env_name):
         'buttons_num': 0,
     }
     
-    config = {
-        'robot_base': 'xmls/point.xml', # dt in xml, default 0.002s for point
+    config1 = {
+        'robot_base': 'xmls/swimmer.xml', # dt in xml, default 0.002s for point
         'task': 'goal',
         'observation_flatten': True,  # Flatten observation into a vector
         'observe_sensors': True,  # Observe all sensor data from simulator

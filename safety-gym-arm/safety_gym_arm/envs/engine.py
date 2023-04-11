@@ -1140,6 +1140,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         if 'arm' in self.robot_base:
              end_pos = self.arm_end_pos
              return np.sqrt(np.sum(np.square(self.goal_pos - end_pos)))
+        if self.goal_3D:
+             return self.dist_xyz(self.goal_pos)
         return self.dist_xy(self.goal_pos)
 
     def dist_box(self):
