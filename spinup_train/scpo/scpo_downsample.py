@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class SCPOBuffer:
@@ -633,18 +633,11 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     print('Warning: trajectory cut off by epoch at %d steps.'%ep_len, flush=True)
                 # if trajectory didn't reach terminal state, bootstrap value target
                 if timeout or epoch_ended:
-                    if epoch > epochs/10:
-                        _, v, vc, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
-                    else:
-                        _, v, _, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
-                        vc = 0 # note that since we are using maximum cost, the overestimation will hurt performance badly, let's just set vc = 0
+                    _, v, _, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
+                    vc = 0 # note that since we are using maximum cost, the overestimation will hurt performance badly, let's just set vc = 0
                 else:
-                    if epoch > epochs/10:
-                        v = 0
-                        _, _, vc, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
-                    else:
-                        v = 0
-                        vc = 0
+                    v = 0
+                    vc = 0
                 buf.finish_path(v, vc)
                 if terminal:
                     # only save EpRet / EpLen / EpCostRet if trajectory finished
@@ -657,8 +650,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                         print('reset environment is wrong, try next reset')
                 ep_cost_ret, ep_cost = 0, 0
                 M = 0. # initialize the current maximum cost 
-                # o_aug = o.append(M) # augmented observation = observation + M 
-                o_bug = np.append(o, M) # augmented observation = observation + M 
+                o_aug = np.append(o, M) # augmented observation = observation + M 
                 first_step = True
 
         # Save model
@@ -719,7 +711,7 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='scpo_downsample_fixed')
+    parser.add_argument('--exp_name', type=str, default='scpo')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 

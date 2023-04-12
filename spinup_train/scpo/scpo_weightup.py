@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class SCPOBuffer:
@@ -176,7 +176,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=50, gamma=0.99, pi_lr=3e-4,
         vf_lr=1e-3, vcf_lr=1e-3, train_v_iters=80, train_vc_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, target_cost = 1.5, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, 
-        backtrack_iters=100, model_save=False, cost_reduction=0, env_noconti=True):
+        backtrack_iters=100, model_save=False, cost_reduction=0):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -623,27 +623,11 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     print('Warning: trajectory cut off by epoch at %d steps.'%ep_len, flush=True)
                 # if trajectory didn't reach terminal state, bootstrap value target
                 if timeout or epoch_ended:
-                    if env_noconti:
-                        _, v, _, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
-                        vc = 0 # note that since we are using maximum cost, the overestimation will hurt performance badly, let's just set vc = 0
-                    else:
-                        # to eliminate the overestimate of the maximum future cost increase, we need to first set vc as zero in the first few epochs
-                        _, v, vc, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
-                        if epoch > epochs/20:
-                            pass
-                        else:
-                            vc = 0 
+                    _, v, _, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
+                    vc = 0 # note that since we are using maximum cost, the overestimation will hurt performance badly, let's just set vc = 0
                 else:
-                    if env_noconti:
-                        v = 0
-                        vc = 0
-                    else:
-                        v = 0 
-                        # to eliminate the overestimate of the maximum future cost increase, we need to first set vc as zero in the first few epochs
-                        if epoch > epochs/20:
-                            _, _, vc, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
-                        else:
-                            vc = 0
+                    v = 0
+                    vc = 0
                 buf.finish_path(v, vc)
                 if terminal:
                     # only save EpRet / EpLen / EpCostRet if trajectory finished
@@ -731,11 +715,6 @@ if __name__ == '__main__':
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model
-    # model_save = True if args.model_save else False
-    if 'noconti' in args.task:
-        env_noconti = True
-    else:
-        env_noconti = False
     
     model_save = True
 
@@ -743,4 +722,4 @@ if __name__ == '__main__':
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs, target_cost=args.target_cost, 
-        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction, env_noconti=env_noconti)
+        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction)
