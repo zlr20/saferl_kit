@@ -1460,7 +1460,7 @@ def configuration(task, args):
             'ghost3Ds_contact':False,
         }
         
-    if task == 'drone4_noconti':
+    if task == 'drone8_noconti':
         config = {
             'robot_base': 'xmls/drone.xml',
             'goal_3D': True,
@@ -1477,8 +1477,9 @@ def configuration(task, args):
             'lidar_num_bins3D': 6,
             'render_lidar_radius': 0.25,
             'constrain_indicator':False,
-            'hazard3Ds_num': 4,
-            'hazard3Ds_size': 0.3,
+            'hazard3Ds_num': 8,
+            'hazard3Ds_size': 0.5,
+            'hazard3Ds_keepout': 0.5,
             'observe_hazard3Ds': True,
             'constrain_hazard3Ds': True,
             'constrain_ghosts': True,
@@ -1499,7 +1500,7 @@ def configuration(task, args):
             'ghost3Ds_contact':False,
         }
      
-    if task == 'drone4':
+    if task == 'drone8':
         config = {
             'robot_base': 'xmls/drone.xml',
             'goal_3D': True,
@@ -1516,8 +1517,9 @@ def configuration(task, args):
             'lidar_num_bins3D': 6,
             'render_lidar_radius': 0.25,
             'constrain_indicator':False,
-            'hazard3Ds_num': 4,
-            'hazard3Ds_size': 0.3,
+            'hazard3Ds_num': 8,
+            'hazard3Ds_size': 0.5,
+            'hazard3Ds_keepout': 0.5,
             'observe_hazard3Ds': True,
             'constrain_hazard3Ds': True,
             'constrain_ghosts': True,

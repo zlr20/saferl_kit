@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class SCPOBuffer:
@@ -442,52 +442,67 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         '''
         # compute the offset 
         max_adc = max(abs(data['adc']))
-        offset = (4 * target_kl * max_adc * (EpLen - (1 - (1 - target_kl)**EpLen)/(target_kl)) * scale ).detach().cpu().numpy()
-        target_cost_true = target_cost - offset
-        c = EpMaxCost - target_cost_true
-        print(colorize(f'the true target cost is {target_cost_true}', color='yellow', bold=True))
+        offset = (4 * target_kl * max_adc * (EpLen - (1 - (1 - target_kl)**EpLen)/(target_kl))).detach().cpu().numpy()
+
+        # start binary search 
+        optim_case = 0 
+        scale_tmp = scale
         
+        # unchange variables 
         # core calculation for SCPO
         Hinv_g   = cg(Hx, g)             # Hinv_g = H \ g        
         approx_g = Hx(Hinv_g)           # g
         # q        = np.clip(Hinv_g.T @ approx_g, 0.0, None)  # g.T / H @ g
         q        = Hinv_g.T @ approx_g
         
-        # solve QP
-        # decide optimization cases (feas/infeas, recovery)
-        # Determine optim_case (switch condition for calculation,
-        # based on geometry of constrained optimization problem)
-        if b.T @ b <= 1e-8 and c < 0:
-            Hinv_b, r, s, A, B = 0, 0, 0, 0, 0
-            optim_case = 4
-        else:
-            # cost grad is nonzero: SCPO update!
-            Hinv_b = cg(Hx, b)                # H^{-1} b
-            r = Hinv_b.T @ approx_g          # b^T H^{-1} g
-            s = Hinv_b.T @ Hx(Hinv_b)        # b^T H^{-1} b
-            A = q - r**2 / s            # should be always positive (Cauchy-Shwarz)
-            B = 2*target_kl - c**2 / s  # does safety boundary intersect trust region? (positive = yes)
-
-            # c < 0: feasible
-
-            if c < 0 and B < 0:
-                # point in trust region is feasible and safety boundary doesn't intersect
-                # ==> entire trust region is feasible
-                optim_case = 3
-            elif c < 0 and B >= 0:
-                # x = 0 is feasible and safety boundary intersects
-                # ==> most of trust region is feasible
-                optim_case = 2
-            elif c >= 0 and B >= 0:
-                # x = 0 is infeasible and safety boundary intersects
-                # ==> part of trust region is feasible, recovery possible
-                optim_case = 1
-                print(colorize(f'Alert! Attempting feasible recovery!', 'yellow', bold=True))
+        while optim_case == 0:
+            target_cost_true = target_cost - offset * scale_tmp
+            c = EpMaxCost - target_cost_true
+            print(colorize(f'the true target cost is {target_cost_true}', color='yellow', bold=True))
+            
+            # solve QP
+            # decide optimization cases (feas/infeas, recovery)
+            # Determine optim_case (switch condition for calculation,
+            # based on geometry of constrained optimization problem)
+            if b.T @ b <= 1e-8 and c < 0:
+                Hinv_b, r, s, A, B = 0, 0, 0, 0, 0
+                optim_case = 4
+                break
             else:
-                # x = 0 infeasible, and safety halfspace is outside trust region
-                # ==> whole trust region is infeasible, try to fail gracefully
-                optim_case = 0
-                print(colorize(f'Alert! Attempting INFEASIBLE recovery!', 'red', bold=True))
+                # cost grad is nonzero: SCPO update!
+                Hinv_b = cg(Hx, b)                # H^{-1} b
+                r = Hinv_b.T @ approx_g          # b^T H^{-1} g
+                s = Hinv_b.T @ Hx(Hinv_b)        # b^T H^{-1} b
+                A = q - r**2 / s            # should be always positive (Cauchy-Shwarz)
+                B = 2*target_kl - c**2 / s  # does safety boundary intersect trust region? (positive = yes)
+
+                # c < 0: feasible
+
+                if c < 0 and B < 0:
+                    # point in trust region is feasible and safety boundary doesn't intersect
+                    # ==> entire trust region is feasible
+                    optim_case = 3
+                    break
+                elif c < 0 and B >= 0:
+                    # x = 0 is feasible and safety boundary intersects
+                    # ==> most of trust region is feasible
+                    optim_case = 2
+                    break
+                elif c >= 0 and B >= 0:
+                    # x = 0 is infeasible and safety boundary intersects
+                    # ==> part of trust region is feasible, recovery possible
+                    optim_case = 1
+                    print(colorize(f'Alert! Attempting feasible recovery!', 'yellow', bold=True))
+                    break
+                else:
+                    # x = 0 infeasible, and safety halfspace is outside trust region
+                    # ==> whole trust region is infeasible, try to fail gracefully
+                    optim_case = 0
+                    print(colorize(f'Alert! Attempting INFEASIBLE recovery!', 'red', bold=True))
+                    
+            # exponential decay the scale factor 
+            scale_tmp /= 2
+            
         
         print(colorize(f'optim_case: {optim_case}', 'magenta', bold=True))
         
@@ -717,7 +732,7 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='scpo_adapt')
+    parser.add_argument('--exp_name', type=str, default='scpo_adascale')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 
