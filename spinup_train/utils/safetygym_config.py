@@ -581,7 +581,7 @@ def configuration(task, args):
         
     if task == "walker8":
         config = {
-            'robot_base': 'xmls/walker3d.xml', # dt in xml, default 0.002s for point
+            'robot_base': 'xmls/walker3d_tiny.xml', # dt in xml, default 0.002s for point
             'task': 'goal',
             'observation_flatten': True,  # Flatten observation into a vector
             'observe_sensors': True,  # Observe all sensor data from simulator
@@ -635,7 +635,7 @@ def configuration(task, args):
             'frameskip_binom_n': 10,  # Number of draws trials in binomial distribution (max frameskip) 
             'frameskip_binom_p': 1.0  # Probability of trial return (controls distribution)
         }
-            
+        
     if task == "goal1_noconti":
         config = {
             'robot_base': 'xmls/point.xml', # dt in xml, default 0.002s for point
