@@ -16,7 +16,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 class SafeLayerBuffer:
     """
@@ -450,7 +450,8 @@ def safelayer(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0
             a, v, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
             
             # apply safe layer to get corrected action
-            warmup_ratio = 1.0/3.0
+            # warmup_ratio = 1.0/3.0
+            warmup_ratio = 1.0/100.0
             if epoch > epochs * warmup_ratio:
                 a_safe = ac.ccritic.safety_correction(o, a, prev_c)
             else:

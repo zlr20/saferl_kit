@@ -135,35 +135,45 @@ class MLPCritic(nn.Module):
 # Dalal 2018 : c_{t} = c_{t-1} + g^T*a_{t}
 class C_Critic(nn.Module):
     
-    def __init__(self, obs_dim, act_dim, hidden_sizes, activation):
+    def __init__(self, obs_dim, act_dim, hidden_sizes, activation, device):
         super().__init__()
         self.g_net = mlp([obs_dim] + list(hidden_sizes) + [act_dim], activation)
+        self.device = device
 
     def pred_g(self,obs):
         return self.g_net(obs)
     
     def forward(self, obs, act):
         g = self.pred_g(obs)
+        if len(obs.shape) == 1:
+            # special handle for none batch input case
+            assert len(obs.shape) == len(act.shape)
+            return torch.dot(g, act)
         # (B,1,A)x(B,A,1) -> (B,1,1) -> (B,1)
-        return torch.bmm(g.unsqueeze(1),act.unsqueeze(2)).view(-1,1)
+        # return torch.bmm(g.unsqueeze(1),act.unsqueeze(2)).view(1,-1)
+        return torch.flatten(torch.bmm(g.unsqueeze(1),act.unsqueeze(2)))
     
     # Get the corrected action 
-    def safety_correction(self, obs, act, prev_cost, delta=0.1):
-        obs = torch.as_tensor(obs, dtype=torch.float32)
-        act = torch.as_tensor(act, dtype=torch.float32)
+    def safety_correction(self, obs, act, prev_cost, delta=0.):
+        obs = torch.as_tensor(obs, dtype=torch.float32).to(self.device)
+        act = torch.as_tensor(act, dtype=torch.float32).to(self.device)
         
         pred = self.forward(obs, act).item() + prev_cost
         if pred <= delta:
-            return act.cpu().numpy()
+            return act.detach().cpu().numpy()
         else:
             g = self.pred_g(obs)
             # Equation (5) from Dalal 2018.
             numer = self.forward(obs, act).item() + prev_cost - delta
-            denomin = torch.bmm(g.unsqueeze(1),g.unsqueeze(2)).view(-1) + 1e-8
+            if len(obs.shape) == 1:
+                assert len(obs.shape) == len(act.shape)
+                denomin = torch.dot(g,g) + 1e-8
+            else:
+                denomin = torch.bmm(g.unsqueeze(1),g.unsqueeze(2)).view(-1) + 1e-8
             mult = F.relu(numer / denomin)
             a_old = act
             a_new = a_old - mult * g
-            return a_new.cpu().numpy()
+            return a_new.detach().cpu().numpy()
 
 
 class MLPActorCritic(nn.Module):
@@ -172,7 +182,7 @@ class MLPActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, 
                  hidden_sizes=(64,64), activation=nn.Tanh):
         super().__init__()
-        self.device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
         obs_dim = observation_space.shape[0]
         act_dim = action_space.shape[0]
@@ -187,7 +197,7 @@ class MLPActorCritic(nn.Module):
         self.v  = MLPCritic(obs_dim, hidden_sizes, activation).to(self.device)
         
         # build cost critic function 
-        self.ccritic = C_Critic(obs_dim, act_dim, hidden_sizes, activation).to(self.device)
+        self.ccritic = C_Critic(obs_dim, act_dim, hidden_sizes, activation, self.device).to(self.device)
 
     def step(self, obs):
         with torch.no_grad():
