@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from torch.distributions.normal import Normal
 from torch.distributions.categorical import Categorical
+import torch.nn.functional as F
 
 EPS = 1e-8
 
@@ -57,22 +58,6 @@ def discount_cumsum(x, discount):
     return scipy.signal.lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
 
 
-# def expected_cost(cost_ret, discount):
-#     expected_cost = [cost_ret[i] - discount*cost_ret[i+1] for i in range(len(cost_ret)-1)]
-#     assert len(expected_cost) == len(cost_ret) - 1 # expected cost length should be one step shorter than expected cost length
-#     return expected_cost
-
-def expected_cost(cost_ret, discount):
-    expected_cost = cost_ret[:-1] - discount*cost_ret[1:]
-    return expected_cost
-
-def future_max(x):
-    return [np.max(x[i:]) for i in range(len(x))]
-
-def future_max_norm(x, pnorm):
-    return [np.linalg.norm(x[i:], ord=pnorm) for i in range(len(x))]
-
-
 class Actor(nn.Module):
 
     def _distribution(self, obs):
@@ -90,7 +75,7 @@ class Actor(nn.Module):
         if act is not None:
             logp_a = self._log_prob_from_distribution(pi, act)
         return pi, logp_a
-    
+
     def _d_kl(self, obs, old_mu, old_log_std, device):
         raise NotImplementedError
 
@@ -111,7 +96,6 @@ class MLPCategoricalActor(Actor):
     def _d_kl(self, obs, old_mu, old_log_std, device):
         raise NotImplementedError
 
-
 class MLPGaussianActor(Actor):
 
     def __init__(self, obs_dim, act_dim, hidden_sizes, activation):
@@ -122,7 +106,7 @@ class MLPGaussianActor(Actor):
 
     def _distribution(self, obs):
         mu = self.mu_net(obs)
-        # std = torch.clamp(0.01 + 0.99 * torch.exp(self.log_std), max=10)
+        # std = 0.01 + 0.99 * torch.exp(self.log_std)
         std = torch.exp(self.log_std)
         return Normal(mu, std)
 
@@ -134,7 +118,7 @@ class MLPGaussianActor(Actor):
         mu = self.mu_net(obs.to(device))
         log_std = self.log_std 
         
-        d_kl = diagonal_gaussian_kl(old_mu.to(device), old_log_std.to(device), mu, log_std)
+        d_kl = diagonal_gaussian_kl(old_mu.to(device), old_log_std.to(device), mu, log_std) # debug test to see if P old in the front helps
         return d_kl
 
 
@@ -147,17 +131,49 @@ class MLPCritic(nn.Module):
     def forward(self, obs):
         return torch.squeeze(self.v_net(obs), -1) # Critical to ensure v has right shape.
     
-        
-    
-class MLPMaxCostCritic(nn.Module):
 
-    def __init__(self, obs_dim, hidden_sizes, activation):
+# Dalal 2018 : c_{t} = c_{t-1} + g^T*a_{t}
+class C_Critic(nn.Module):
+    
+    def __init__(self, obs_dim, act_dim, hidden_sizes, activation, device):
         super().__init__()
-        self.v_net = mlp([obs_dim] + list(hidden_sizes) + [1], activation, output_activation=nn.Softplus)
+        self.g_net = mlp([obs_dim] + list(hidden_sizes) + [act_dim], activation)
+        self.device = device
 
-    def forward(self, obs):
-        return torch.squeeze(self.v_net(obs), -1) # Critical to ensure v has right shape.
+    def pred_g(self,obs):
+        return self.g_net(obs)
     
+    def forward(self, obs, act):
+        g = self.pred_g(obs)
+        if len(obs.shape) == 1:
+            # special handle for none batch input case
+            assert len(obs.shape) == len(act.shape)
+            return torch.dot(g, act)
+        # (B,1,A)x(B,A,1) -> (B,1,1) -> (B,1)
+        # return torch.bmm(g.unsqueeze(1),act.unsqueeze(2)).view(1,-1)
+        return torch.flatten(torch.bmm(g.unsqueeze(1),act.unsqueeze(2)))
+    
+    # Get the corrected action 
+    def safety_correction(self, obs, act, prev_cost, delta=0.):
+        obs = torch.as_tensor(obs, dtype=torch.float32).to(self.device)
+        act = torch.as_tensor(act, dtype=torch.float32).to(self.device)
+        
+        pred = self.forward(obs, act).item() + prev_cost
+        if pred <= delta:
+            return act.detach().cpu().numpy()
+        else:
+            g = self.pred_g(obs)
+            # Equation (5) from Dalal 2018.
+            numer = self.forward(obs, act).item() + prev_cost - delta
+            if len(obs.shape) == 1:
+                assert len(obs.shape) == len(act.shape)
+                denomin = torch.dot(g,g) + 1e-8
+            else:
+                denomin = torch.bmm(g.unsqueeze(1),g.unsqueeze(2)).view(-1) + 1e-8
+            mult = F.relu(numer / denomin)
+            a_old = act
+            a_new = a_old - mult * g
+            return a_new.detach().cpu().numpy()
 
 
 class MLPActorCritic(nn.Module):
@@ -166,9 +182,10 @@ class MLPActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, 
                  hidden_sizes=(64,64), activation=nn.Tanh):
         super().__init__()
-        self.device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
-        obs_dim = observation_space.shape[0] + 1 # this is especially designed for SCPO, since we require an additional M in the observation space 
+        obs_dim = observation_space.shape[0]
+        act_dim = action_space.shape[0]
 
         # policy builder depends on action space
         if isinstance(action_space, Box):
@@ -179,8 +196,8 @@ class MLPActorCritic(nn.Module):
         # build value function
         self.v  = MLPCritic(obs_dim, hidden_sizes, activation).to(self.device)
         
-        # build cost value function
-        self.vc  = MLPMaxCostCritic(obs_dim, hidden_sizes, activation).to(self.device)
+        # build cost critic function 
+        self.ccritic = C_Critic(obs_dim, act_dim, hidden_sizes, activation, self.device).to(self.device)
 
     def step(self, obs):
         with torch.no_grad():
@@ -189,8 +206,8 @@ class MLPActorCritic(nn.Module):
             a = pi.sample()
             logp_a = self.pi._log_prob_from_distribution(pi, a)
             v = self.v(obs)
-            vc = self.vc(obs)
-        return a.cpu().numpy(), v.cpu().numpy(), vc.cpu().numpy(), logp_a.cpu().numpy(), pi.mean.cpu().numpy(), torch.log(pi.stddev).cpu().numpy()
+        return a.cpu().numpy(), v.cpu().numpy(), logp_a.cpu().numpy(), pi.mean.cpu().numpy(), torch.log(pi.stddev).cpu().numpy()
 
     def act(self, obs):
         return self.step(obs)[0]
+

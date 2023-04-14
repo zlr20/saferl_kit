@@ -694,6 +694,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
             if conflicted:
                 return False
             layout[name] = xy
+        
         self.layout = layout
         return True
 
@@ -1139,6 +1140,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         if 'arm' in self.robot_base:
              end_pos = self.arm_end_pos
              return np.sqrt(np.sum(np.square(self.goal_pos - end_pos)))
+        if self.goal_3D:
+             return self.dist_xyz(self.goal_pos)
         return self.dist_xy(self.goal_pos)
 
     def dist_box(self):
@@ -1763,11 +1766,33 @@ class Engine(gym.Env, gym.utils.EzPickle):
         info = {}
 
         # Set action
-        action_range = self.model.actuator_ctrlrange
-        # action_scale = action_range[:,1] - action_range[:, 0]
-        self.data.ctrl[:] = np.clip(action, action_range[:,0], action_range[:,1]) #np.clip(action * 2 / action_scale, -1, 1)
-        if self.action_noise:
-            self.data.ctrl[:] += self.action_noise * self.rs.randn(self.model.nu)
+        if "drone" in self.robot_base:
+            action = np.clip(action, -1.0, 1.0)
+            mass = self.model.body_mass[self.model.body_name2id('robot')]
+            mass += self.model.body_mass[self.model.body_name2id('p1')]
+            mass += self.model.body_mass[self.model.body_name2id('p2')]
+            mass += self.model.body_mass[self.model.body_name2id('p3')]
+            mass += self.model.body_mass[self.model.body_name2id('p4')]
+            robot_pos = self.world.robot_pos()
+            R = self.world.robot_mat()
+            f = mass * 9.81
+            if (robot_pos[2] > 3):
+                f = 0
+
+            torque = [0, 0, 0]
+            for i in range(4):
+                propeller = 'p' + str(i + 1)
+                force = [0, 0, f/4 + action[i]*1e-1]
+                force = np.array(force).reshape(3,1)
+                force = R@force
+                force = [force[i,0] for i in range(3)]
+                self.data.xfrc_applied[self.model.body_name2id(propeller),:] = force + torque
+        else:
+            action_range = self.model.actuator_ctrlrange
+            # action_scale = action_range[:,1] - action_range[:, 0]
+            self.data.ctrl[:] = np.clip(action, action_range[:,0], action_range[:,1]) #np.clip(action * 2 / action_scale, -1, 1)
+            if self.action_noise:
+                self.data.ctrl[:] += self.action_noise * self.rs.randn(self.model.nu)
 
         # Simulate physics forward
         exception = False

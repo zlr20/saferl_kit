@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class SCPOBuffer:
@@ -176,7 +176,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=50, gamma=0.99, pi_lr=3e-4,
         vf_lr=1e-3, vcf_lr=1e-3, train_v_iters=80, train_vc_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, target_cost = 1.5, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, 
-        backtrack_iters=100, model_save=False, cost_reduction=0):
+        backtrack_iters=100, model_save=False, cost_reduction=0, scale=1.):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -362,7 +362,36 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Set up function for computing cost loss 
     def compute_loss_vc(data):
         obs, cost_ret = data['obs'], data['cost_ret']
-        return ((ac.vc(obs) - cost_ret)**2).mean()
+        
+        # down sample the imbalanced data 
+        cost_ret_positive = cost_ret[cost_ret > 0]
+        obs_positive = obs[cost_ret > 0]
+        
+        cost_ret_zero = cost_ret[cost_ret == 0]
+        obs_zero = obs[cost_ret == 0]
+        
+        if len(cost_ret_zero) > 0:
+            frac = len(cost_ret_positive) / len(cost_ret_zero) 
+            
+            if frac < 1. :# Fraction of elements to keep
+                indices = np.random.choice(len(cost_ret_zero), size=int(len(cost_ret_zero)*frac), replace=False)
+                cost_ret_zero_downsample = cost_ret_zero[indices]
+                obs_zero_downsample = obs_zero[indices]
+                
+                # concatenate 
+                obs_downsample = torch.cat((obs_positive, obs_zero_downsample), dim=0)
+                cost_ret_downsample = torch.cat((cost_ret_positive, cost_ret_zero_downsample), dim=0)
+            else:
+                # no need to downsample 
+                obs_downsample = obs
+                cost_ret_downsample = cost_ret
+        else:
+            # no need to downsample 
+            obs_downsample = obs
+            cost_ret_downsample = cost_ret
+            
+        # downsample cost return zero 
+        return ((ac.vc(obs_downsample) - cost_ret_downsample)**2).mean()
 
     # Set up optimizers for policy and value function
     pi_optimizer = Adam(ac.pi.parameters(), lr=pi_lr)
@@ -411,7 +440,12 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         '''
         fixed target cost, in the context of sum adv of epoch
         '''
-        c = EpMaxCost - target_cost
+        # compute the offset 
+        max_adc = max(abs(data['adc']))
+        offset = (4 * target_kl * max_adc * (EpLen - (1 - (1 - target_kl)**EpLen)/(target_kl)) * scale ).detach().cpu().numpy()
+        target_cost_true = target_cost - offset
+        c = EpMaxCost - target_cost_true
+        print(colorize(f'the true target cost is {target_cost_true}', color='yellow', bold=True))
         
         # core calculation for SCPO
         Hinv_g   = cg(Hx, g)             # Hinv_g = H \ g        
@@ -604,7 +638,8 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     print('Warning: trajectory cut off by epoch at %d steps.'%ep_len, flush=True)
                 # if trajectory didn't reach terminal state, bootstrap value target
                 if timeout or epoch_ended:
-                    _, v, vc, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
+                    _, v, _, _, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
+                    vc = 0
                 else:
                     v = 0
                     vc = 0
@@ -620,8 +655,7 @@ def scpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                         print('reset environment is wrong, try next reset')
                 ep_cost_ret, ep_cost = 0, 0
                 M = 0. # initialize the current maximum cost 
-                # o_aug = o.append(M) # augmented observation = observation + M 
-                o_bug = np.append(o, M) # augmented observation = observation + M 
+                o_aug = np.append(o, M) # augmented observation = observation + M 
                 first_step = True
 
         # Save model
@@ -673,6 +707,7 @@ if __name__ == '__main__':
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
     parser.add_argument('--target_cost', type=float, default=0.) # the cost limit for the environment
+    parser.add_argument('--scale', type=float, default=1.) # the cost limit for the environment
     parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for SCPO
     parser.add_argument('--cost_reduction', type=float, default=0.) # the cost_reduction limit when current policy is infeasible
     parser.add_argument('--hid', type=int, default=64)
@@ -682,7 +717,7 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='scpo')
+    parser.add_argument('--exp_name', type=str, default='scpo_adapt')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 
@@ -690,7 +725,7 @@ if __name__ == '__main__':
     
     exp_name = args.task + '_' + args.exp_name \
                 + '_' + 'kl' + str(args.target_kl) \
-                + '_' + 'target_cost' + str(args.target_cost) 
+                + '_' + 'scale' + str(args.scale)
                 # + '_' + 'step' + str(args.steps)
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
@@ -702,4 +737,4 @@ if __name__ == '__main__':
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs, target_cost=args.target_cost, 
-        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction)
+        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction, scale=args.scale)
