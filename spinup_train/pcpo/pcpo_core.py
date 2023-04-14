@@ -74,7 +74,7 @@ class Actor(nn.Module):
         if act is not None:
             logp_a = self._log_prob_from_distribution(pi, act)
         return pi, logp_a
-
+    
     def _d_kl(self, obs, old_mu, old_log_std, device):
         raise NotImplementedError
 
@@ -95,6 +95,7 @@ class MLPCategoricalActor(Actor):
     def _d_kl(self, obs, old_mu, old_log_std, device):
         raise NotImplementedError
 
+
 class MLPGaussianActor(Actor):
 
     def __init__(self, obs_dim, act_dim, hidden_sizes, activation):
@@ -105,7 +106,7 @@ class MLPGaussianActor(Actor):
 
     def _distribution(self, obs):
         mu = self.mu_net(obs)
-        # std = 0.01 + 0.99 * torch.exp(self.log_std)
+        # std = torch.clamp(0.01 + 0.99 * torch.exp(self.log_std), max=10)
         std = torch.exp(self.log_std)
         return Normal(mu, std)
 
@@ -117,7 +118,7 @@ class MLPGaussianActor(Actor):
         mu = self.mu_net(obs.to(device))
         log_std = self.log_std 
         
-        d_kl = diagonal_gaussian_kl(old_mu.to(device), old_log_std.to(device), mu, log_std) # debug test to see if P old in the front helps
+        d_kl = diagonal_gaussian_kl(old_mu.to(device), old_log_std.to(device), mu, log_std)
         return d_kl
 
 
@@ -138,7 +139,7 @@ class MLPActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, 
                  hidden_sizes=(64,64), activation=nn.Tanh):
         super().__init__()
-        self.device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
 
         obs_dim = observation_space.shape[0]
 
@@ -150,6 +151,9 @@ class MLPActorCritic(nn.Module):
 
         # build value function
         self.v  = MLPCritic(obs_dim, hidden_sizes, activation).to(self.device)
+        
+        # build cost value function
+        self.vc  = MLPCritic(obs_dim, hidden_sizes, activation).to(self.device)
 
     def step(self, obs):
         with torch.no_grad():
@@ -158,7 +162,8 @@ class MLPActorCritic(nn.Module):
             a = pi.sample()
             logp_a = self.pi._log_prob_from_distribution(pi, a)
             v = self.v(obs)
-        return a.cpu().numpy(), v.cpu().numpy(), logp_a.cpu().numpy(), pi.mean.cpu().numpy(), torch.log(pi.stddev).cpu().numpy()
+            vc = self.vc(obs)
+        return a.cpu().numpy(), v.cpu().numpy(), vc.cpu().numpy(), logp_a.cpu().numpy(), pi.mean.cpu().numpy(), torch.log(pi.stddev).cpu().numpy()
 
     def act(self, obs):
         return self.step(obs)[0]
