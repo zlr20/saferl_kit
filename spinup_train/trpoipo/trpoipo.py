@@ -6,7 +6,7 @@ from torch.optim import Adam
 import gym
 import time
 import copy
-import spinup_train.trpoipo.trpoipo_core as core
+import trpoipo_core as core
 from utils.logx import EpochLogger, setup_logger_kwargs, colorize
 from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
 from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs, mpi_sum
@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class TRPOIPOBuffer:
@@ -331,7 +331,8 @@ def trpoipo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         loss_pi = -(ratio * adv).mean()
         
         # IPO loss
-        n_epi = epi_id.max() + 1
+        # import ipdb; ipdb.set_trace()
+        n_epi = int(epi_id.max().item() + 1)
         J_C_pi = 0
         for i in range(n_epi):
             j = np.where(epi_id == i)[0][0]
@@ -546,13 +547,13 @@ if __name__ == '__main__':
     parser.add_argument('--exp_name', type=str, default='trpoipo')
     parser.add_argument('--model_save', action='store_true')
     parser.add_argument('--target_kl', type=float, default=0.02)
-    parser.add_argument('--target_cost', type=float, default=1.5)
+    parser.add_argument('--target_cost', type=float, default=0.)
     parser.add_argument('--t_ipo', type=float, default=0.01)
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
     
-    exp_name = args.task + '_' + args.exp_name + '_' + 'kl' + str(args.target_kl)
+    exp_name = args.task + '_' + args.exp_name + '_' + 't' + str(args.t_ipo)
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model
@@ -562,5 +563,5 @@ if __name__ == '__main__':
     trpoipo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
-        logger_kwargs=logger_kwargs, model_save=model_save, target_kl=args.target_kl, target_cost=target_cost,
-        t_ipo=t_ipo, max_ep_len=args.max_ep_len)
+        logger_kwargs=logger_kwargs, model_save=model_save, target_kl=args.target_kl, target_cost=args.target_cost,
+        t_ipo=args.t_ipo, max_ep_len=args.max_ep_len)
