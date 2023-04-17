@@ -139,6 +139,7 @@ class C_Critic(nn.Module):
         super().__init__()
         self.g_net = mlp([obs_dim] + list(hidden_sizes) + [act_dim], activation)
         self.device = device
+        self.max_action = 1 # the default maximum action for safety gym 
 
     def pred_g(self,obs):
         return self.g_net(obs)
@@ -173,6 +174,7 @@ class C_Critic(nn.Module):
             mult = F.relu(numer / denomin)
             a_old = act
             a_new = a_old - mult * g
+            a_new = torch.clamp(a_new, -self.max_action, self.max_action)
             return a_new.detach().cpu().numpy()
 
 

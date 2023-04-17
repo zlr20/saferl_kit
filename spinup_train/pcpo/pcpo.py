@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class PCPOBuffer:
@@ -456,7 +456,7 @@ def pcpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # copy an actor to conduct line search 
         actor_tmp = copy.deepcopy(ac.pi)
         def set_and_eval(step):
-            new_param = get_net_param_np_vec(ac.pi) - step * x_direction
+            new_param = get_net_param_np_vec(ac.pi) + step * x_direction
             assign_net_param_from_flat(new_param, actor_tmp)
             kl = compute_kl_pi(data, actor_tmp)
             pi_l, _ = compute_loss_pi(data, actor_tmp)
@@ -466,7 +466,7 @@ def pcpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
         kl, pi_l_new, surr_cost_new = set_and_eval(1)
         # update the policy parameter 
-        new_param = get_net_param_np_vec(ac.pi) - 1 * x_direction
+        new_param = get_net_param_np_vec(ac.pi) + 1 * x_direction
         assign_net_param_from_flat(new_param, ac.pi)
         
         loss_pi, pi_info = compute_loss_pi(data, ac.pi) # re-evaluate the pi_info for the new policy
@@ -617,21 +617,28 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--exp_name', type=str, default='pcpo')
     parser.add_argument('--model_save', action='store_true')
+    parser.add_argument('--l2_proj', action='store_true')
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
     
+    kl_proj = False if args.l2_proj else True
+    
     exp_name = args.task + '_' + args.exp_name \
                 + '_' + 'kl' + str(args.target_kl) \
-                + '_' + 'target_cost' + str(args.target_cost) 
+                + '_' + 'target_cost' + str(args.target_cost) \
+                + '_' + 'kl_proj' + str(kl_proj)
+                
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model
     # model_save = True if args.model_save else False
     model_save = True
+    
+    
 
     pcpo(lambda : create_env(args), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs, target_cost=args.target_cost, 
-        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction)
+        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction, kl_proj=kl_proj)

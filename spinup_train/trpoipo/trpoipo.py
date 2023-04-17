@@ -332,16 +332,17 @@ def trpoipo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
         # IPO loss
         # import ipdb; ipdb.set_trace()
-        n_epi = int(epi_id.max().item() + 1)
-        J_C_pi = 0
-        for i in range(n_epi):
-            j = np.where(epi_id == i)[0][0]
-            k = np.where(epi_id == i)[0][-1] + 1
-            ratio = torch.exp( torch.sum(logp[j:k]) - torch.sum(logp_old[j:k]) )
-            J_C_pi += ( ratio * torch.sum(cost[j:k]) )
-        J_C_pi /= n_epi
+        # n_epi = int(epi_id.max().item() + 1)
+        # J_C_pi = 0
+        # for i in range(n_epi):
+        #     j = np.where(epi_id == i)[0][0]
+        #     k = np.where(epi_id == i)[0][-1] + 1
+        #     ratio = torch.exp( torch.sum(logp[j:k]) - torch.sum(logp_old[j:k]) )
+        #     J_C_pi += ( ratio * torch.sum(cost[j:k]) )
+        J_C_pi = (ratio * cost).mean()
+        # J_C_pi /= n_epi
         J_C_pi_tild = J_C_pi - torch.as_tensor(target_cost, dtype=torch.float32).to(device)
-        phi = torch.log(-torch.clamp(J_C_pi_tild, max=-1e-8)) / t_ipo
+        phi = torch.log(-torch.clamp(J_C_pi_tild, max=-1e-10)) / t_ipo
         loss_pi_ipo = loss_pi - phi
         
         # Useful extra info
@@ -544,7 +545,7 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--max_ep_len', type=int, default=1000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='trpoipo')
+    parser.add_argument('--exp_name', type=str, default='trpoipo_simple')
     parser.add_argument('--model_save', action='store_true')
     parser.add_argument('--target_kl', type=float, default=0.02)
     parser.add_argument('--target_cost', type=float, default=0.)

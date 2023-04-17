@@ -136,29 +136,38 @@ class C_Critic(nn.Module):
     
     def __init__(self, obs_dim, act_dim, hidden_sizes, activation, device):
         super().__init__()
-        self.c_net = mlp([obs_dim + act_dim] + list(hidden_sizes) + [1], activation)
+        self.c_net = mlp([obs_dim + act_dim] + list(hidden_sizes) + [1], activation, output_activation=nn.Softplus)
         self.device = device
+        self.max_action = 1 # the default maximum action for safety gym 
     
-    def forward(self, obs, act):
-        return self.c_net(self.l1(torch.cat([obs, act], 1)))
+    # def forward(self, obs, act):
+    def forward(self, obs_act):
+        # if len(obs.shape) == 1:
+        #     return self.c_net(torch.cat((obs, act)))
+        # else:
+        #     assert len(obs.shape) == 2
+        #     return self.c_net(torch.cat((obs, act), dim=1))
+        return torch.squeeze(self.c_net(obs_act), -1) # Critical to ensure v has right shape.
+        
     
     # Get the corrected action 
-    def safety_correction(self, obs, act, prev_cost, delta=0., Niter = 20, eta = 0.05):
+    def safety_correction(self, obs, act, prev_cost, delta=0., Niter = 10, eta = 0.05):
         obs = torch.as_tensor(obs, dtype=torch.float32).to(self.device)
         act = torch.as_tensor(act, dtype=torch.float32).to(self.device)
+        act.requires_grad_()
         
-        pred = self.forward(obs, act).item()
+        pred = self.forward(torch.cat((obs,act))).item()
         if pred <= delta:
             return act.detach().cpu().numpy()
         else:
             for i in range(Niter):
-                # if max(np.abs(action.cpu().data.numpy().flatten())) > self.max_action:
-                #     break
+                if max(np.abs(act.cpu().data.numpy().flatten())) > self.max_action:
+                    break
                 act.retain_grad()
                 self.c_net.zero_grad()
-                pred = self.c_net(obs,act)
+                pred = self.forward(torch.cat((obs,act)))
                 pred.backward(retain_graph=True)
-                if pred.item() <= self.delta:
+                if pred.item() <= delta:
                     break
                 Z = np.max(np.abs(act.grad.cpu().data.numpy().flatten()))
                 act = act - eta * act.grad / (Z + 1e-8)
@@ -197,7 +206,9 @@ class MLPActorCritic(nn.Module):
             a = pi.sample()
             logp_a = self.pi._log_prob_from_distribution(pi, a)
             v = self.v(obs)
-        return a.cpu().numpy(), v.cpu().numpy(), logp_a.cpu().numpy(), pi.mean.cpu().numpy(), torch.log(pi.stddev).cpu().numpy()
+            # import ipdb; ipdb.set_trace()
+            qc = self.ccritic(torch.cat((obs,a)))
+        return a.cpu().numpy(), v.cpu().numpy(), logp_a.cpu().numpy(), pi.mean.cpu().numpy(), torch.log(pi.stddev).cpu().numpy(), qc.cpu().numpy()
 
     def act(self, obs):
         return self.step(obs)[0]

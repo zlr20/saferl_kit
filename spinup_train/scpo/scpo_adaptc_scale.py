@@ -740,8 +740,8 @@ if __name__ == '__main__':
     
     exp_name = args.task + '_' + args.exp_name \
                 + '_' + 'kl' + str(args.target_kl) \
-                + '_' + 'scale' + str(args.scale)
-                # + '_' + 'step' + str(args.steps)
+                + '_' + 'scale' + str(args.scale) \
+                + '_' + 'step' + str(args.steps)
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model

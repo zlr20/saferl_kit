@@ -37,17 +37,17 @@ class UslBuffer:
         self.mu_buf = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.logstd_buf = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.cost_buf = np.zeros(size, dtype=np.float32)
-        self.prev_cost_buf = np.zeros(size, dtype=np.float32)
+        self.qc_buf = np.zeros(size, dtype=np.float32)
+        self.targetc_buf = np.zeros(size, dtype=np.float32)
         self.gamma, self.lam = gamma, lam
         self.ptr, self.path_start_idx, self.max_size = 0, 0, size
 
-    def store(self, obs, next_obs, act, act_safe, rew, val, logp, mu, logstd, cost, done):
+    def store(self, obs, act, act_safe, rew, val, logp, mu, logstd, cost, qc):
         """
         Append one timestep of agent-environment interaction to the buffer.
         """
         assert self.ptr < self.max_size     # buffer has to have room so you can store
         self.obs_buf[self.ptr] = obs
-        self.next_obs_buf[self.ptr] = next_obs
         self.act_buf[self.ptr] = act
         self.act_safe_buf[self.ptr] = act_safe
         self.rew_buf[self.ptr] = rew
@@ -56,7 +56,7 @@ class UslBuffer:
         self.mu_buf[self.ptr] = mu
         self.logstd_buf[self.ptr] = logstd
         self.cost_buf[self.ptr] = cost
-        self.done_buf[self.ptr] = done
+        self.qc_buf[self.ptr] = qc
         self.ptr += 1
 
     def finish_path(self, last_val=0):
@@ -86,6 +86,11 @@ class UslBuffer:
         # the next line computes rewards-to-go, to be targets for the value function
         self.ret_buf[path_slice] = core.discount_cumsum(rews, self.gamma)[:-1]
         
+        # the ccritic 
+        qcs = np.append(self.qc_buf[path_slice], 0)
+        costs = np.append(self.cost_buf[path_slice], 0)
+        self.targetc_buf[path_slice] = costs[:-1] + self.gamma * qcs[1:]
+        
         self.path_start_idx = self.ptr
 
     def get(self):
@@ -99,8 +104,7 @@ class UslBuffer:
         # the next two lines implement the advantage normalization trick
         adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
         self.adv_buf = (self.adv_buf - adv_mean) / adv_std
-        data = dict(obs=torch.FloatTensor(self.obs_buf).to(device), 
-                    next_obs=torch.FloatTensor(self.next_obs_buf).to(device), 
+        data = dict(obs=torch.FloatTensor(self.obs_buf).to(device),  
                     act=torch.FloatTensor(self.act_buf).to(device),
                     act_safe=torch.FloatTensor(self.act_safe_buf).to(device), 
                     ret=torch.FloatTensor(self.ret_buf).to(device),
@@ -109,7 +113,7 @@ class UslBuffer:
                     mu=torch.FloatTensor(self.mu_buf).to(device),
                     logstd=torch.FloatTensor(self.logstd_buf).to(device),
                     cost=torch.FloatTensor(self.cost_buf).to(device),
-                    done=torch.FloatTensor(self.done_buf).to(device)
+                    targetc=torch.FloatTensor(self.targetc_buf).to(device)
         )
         return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in data.items()}
 
@@ -323,7 +327,7 @@ def usl(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         """
         The reward objective for Usl (Usl policy loss)
         """
-        obs, act, adv, logp_old, done = data['obs'], data['act'], data['adv'], data['logp']
+        obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
         
         # Policy loss 
         pi, logp = cur_pi(obs, act)
@@ -345,21 +349,15 @@ def usl(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         return ((ac.v(obs) - ret)**2).mean()
     
     def compute_loss_ccritic(data):
-        obs, next_obs, act_safe, cost, done = data['obs'], data['next_obs'], data['act_safe'], data['cost'], data['done']
-        
-        # Compute the target C value
-        next_act, _, _, _, _ = ac.step(torch.as_tensor(next_obs, dtype=torch.float32))
-        target_c = ac.ccritic(next_obs, next_act)
-        cost_discount = 0.99
-        target_c = cost + ((1 - done) * cost_discount * target_c).detach()
+        obs, act_safe, targetc = data['obs'], data['act_safe'], data['targetc']
 
         # Get current C estimate
-        current_c = ac.ccritic(obs, act_safe)
-
-        # Compute critic loss
-        ccritic_loss = F.mse_loss(current_c, target_c)
-        return ccritic_loss
-
+        obs_act = torch.cat((obs, act_safe), dim=1)
+        # current_c = ac.ccritic(obs, act_safe)
+        # current_c = ac.ccritic(obs_act)
+        # return ((ac.ccritic(obs, act_safe) - targetc)**2).mean()
+        return ((ac.ccritic(obs_act) - targetc)**2).mean()
+    
     # Set up optimizers for policy and value function
     vf_optimizer = Adam(ac.v.parameters(), lr=vf_lr)
     ccritic_optimizer = Adam(ac.ccritic.parameters(), lr=ccritic_lr)
@@ -455,13 +453,14 @@ def usl(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
-            a, v, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, logp, mu, logstd, qc = ac.step(torch.as_tensor(o, dtype=torch.float32))
             
             # apply safe layer to get corrected action
-            # warmup_ratio = 1.0/3.0
-            warmup_ratio = 0.
+            warmup_ratio = 1.0/3.0
+            # warmup_ratio = 0.
             if epoch > epochs * warmup_ratio:
                 a_safe = ac.ccritic.safety_correction(o, a, prev_c)
+                assert a_safe is not a
             else:
                 a_safe = a 
                     
@@ -480,19 +479,13 @@ def usl(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             ep_ret += r
             ep_len += 1
             ep_cost += c
-
-            
-            
             logger.store(VVals=v)
-            
-            
-            
             timeout = ep_len == max_ep_len
             terminal = d or timeout
             epoch_ended = t==local_steps_per_epoch-1
             
             # save and log
-            buf.store(o, next_o, a, a_safe, r, v, logp, mu, logstd, c, terminal)
+            buf.store(o, a, a_safe, r, v, logp, mu, logstd, c, qc)
             
             # Update obs (critical!)
             o = next_o
@@ -502,7 +495,7 @@ def usl(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     print('Warning: trajectory cut off by epoch at %d steps.'%ep_len, flush=True)
                 # if trajectory didn't reach terminal state, bootstrap value target
                 if timeout or epoch_ended:
-                    _, v, _, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
+                    _, v, _, _, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
                 else:
                     v = 0
                 buf.finish_path(v)
@@ -572,7 +565,7 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--max_ep_len', type=int, default=1000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='safelayer_nowarm')
+    parser.add_argument('--exp_name', type=str, default='usl_iter10')
     parser.add_argument('--model_save', action='store_true')
     parser.add_argument('--target_kl', type=float, default=0.02)
     args = parser.parse_args()
