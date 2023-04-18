@@ -473,8 +473,8 @@ def safelayer(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0
             a, v, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
             
             # apply safe layer to get corrected action
-            warmup_ratio = 1.0/3.0
-            # warmup_ratio = 0.
+            # warmup_ratio = 1.0/3.0
+            warmup_ratio = 0.
             if epoch > epochs * warmup_ratio:
                 a_safe = ac.ccritic.safety_correction(o, a, prev_c)
             else:
@@ -584,7 +584,7 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--max_ep_len', type=int, default=1000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='safelayer_downsample')
+    parser.add_argument('--exp_name', type=str, default='safelayer_downsample_nowarm')
     parser.add_argument('--model_save', action='store_true')
     parser.add_argument('--target_kl', type=float, default=0.02)
     args = parser.parse_args()

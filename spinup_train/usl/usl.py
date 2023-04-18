@@ -16,7 +16,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 class UslBuffer:
     """
@@ -565,7 +565,7 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--max_ep_len', type=int, default=1000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='usl_iter10')
+    parser.add_argument('--exp_name', type=str, default='usl_iter40')
     parser.add_argument('--model_save', action='store_true')
     parser.add_argument('--target_kl', type=float, default=0.02)
     args = parser.parse_args()

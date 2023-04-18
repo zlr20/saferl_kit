@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import gym
 import time
 import copy
-import usl_core as core
+import usl_mc_core as core
 from utils.logx import EpochLogger, setup_logger_kwargs, colorize
 from utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
 from utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs, mpi_sum
@@ -31,18 +31,17 @@ class UslBuffer:
         self.act_safe_buf = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.adv_buf = np.zeros(size, dtype=np.float32)
         self.rew_buf = np.zeros(size, dtype=np.float32)
+        self.cost_buf = np.zeros(size, dtype=np.float32)
         self.ret_buf = np.zeros(size, dtype=np.float32)
+        self.cost_ret_buf = np.zeros(size, dtype=np.float32)
         self.val_buf = np.zeros(size, dtype=np.float32)
         self.logp_buf = np.zeros(size, dtype=np.float32)
         self.mu_buf = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.logstd_buf = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
-        self.cost_buf = np.zeros(size, dtype=np.float32)
-        self.qc_buf = np.zeros(size, dtype=np.float32)
-        self.targetc_buf = np.zeros(size, dtype=np.float32)
         self.gamma, self.lam = gamma, lam
         self.ptr, self.path_start_idx, self.max_size = 0, 0, size
 
-    def store(self, obs, act, act_safe, rew, val, logp, mu, logstd, cost, qc):
+    def store(self, obs, act, act_safe, rew, val, logp, mu, logstd, cost):
         """
         Append one timestep of agent-environment interaction to the buffer.
         """
@@ -56,10 +55,9 @@ class UslBuffer:
         self.mu_buf[self.ptr] = mu
         self.logstd_buf[self.ptr] = logstd
         self.cost_buf[self.ptr] = cost
-        self.qc_buf[self.ptr] = qc
         self.ptr += 1
 
-    def finish_path(self, last_val=0):
+    def finish_path(self, last_val=0, last_cost=0):
         """
         Call this at the end of a trajectory, or when one gets cut off
         by an epoch ending. This looks back in the buffer to where the
@@ -79,6 +77,9 @@ class UslBuffer:
         rews = np.append(self.rew_buf[path_slice], last_val)
         vals = np.append(self.val_buf[path_slice], last_val)
         
+        # cost related stuffs 
+        costs = np.append(self.cost_buf[path_slice], last_cost)
+        
         # the next two lines implement GAE-Lambda advantage calculation
         deltas = rews[:-1] + self.gamma * vals[1:] - vals[:-1]
         self.adv_buf[path_slice] = core.discount_cumsum(deltas, self.gamma * self.lam)
@@ -86,10 +87,8 @@ class UslBuffer:
         # the next line computes rewards-to-go, to be targets for the value function
         self.ret_buf[path_slice] = core.discount_cumsum(rews, self.gamma)[:-1]
         
-        # the ccritic 
-        qcs = np.append(self.qc_buf[path_slice], 0)
-        costs = np.append(self.cost_buf[path_slice], 0)
-        self.targetc_buf[path_slice] = costs[:-1] + self.gamma * qcs[1:]
+        # the next line computes costs-to-go, to be targets for the ccritic function
+        self.cost_ret_buf[path_slice] = core.discount_cumsum(costs, self.gamma)[:-1]
         
         self.path_start_idx = self.ptr
 
@@ -113,7 +112,7 @@ class UslBuffer:
                     mu=torch.FloatTensor(self.mu_buf).to(device),
                     logstd=torch.FloatTensor(self.logstd_buf).to(device),
                     cost=torch.FloatTensor(self.cost_buf).to(device),
-                    targetc=torch.FloatTensor(self.targetc_buf).to(device)
+                    cost_ret=torch.FloatTensor(self.cost_ret_buf).to(device)
         )
         return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in data.items()}
 
@@ -349,14 +348,11 @@ def usl(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         return ((ac.v(obs) - ret)**2).mean()
     
     def compute_loss_ccritic(data):
-        obs, act_safe, targetc = data['obs'], data['act_safe'], data['targetc']
+        obs, act_safe, cost_ret = data['obs'], data['act_safe'], data['cost_ret']
 
         # Get current C estimate
         obs_act = torch.cat((obs, act_safe), dim=1)
-        # current_c = ac.ccritic(obs, act_safe)
-        # current_c = ac.ccritic(obs_act)
-        # return ((ac.ccritic(obs, act_safe) - targetc)**2).mean()
-        return ((ac.ccritic(obs_act) - targetc)**2).mean()
+        return ((ac.ccritic(obs_act) - cost_ret)**2).mean()
     
     # Set up optimizers for policy and value function
     vf_optimizer = Adam(ac.v.parameters(), lr=vf_lr)
@@ -453,7 +449,7 @@ def usl(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
-            a, v, logp, mu, logstd, qc = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
             
             # apply safe layer to get corrected action
             warmup_ratio = 1.0/3.0
@@ -485,7 +481,7 @@ def usl(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             epoch_ended = t==local_steps_per_epoch-1
             
             # save and log
-            buf.store(o, a, a_safe, r, v, logp, mu, logstd, c, qc)
+            buf.store(o, a, a_safe, r, v, logp, mu, logstd, c)
             
             # Update obs (critical!)
             o = next_o
@@ -495,7 +491,7 @@ def usl(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     print('Warning: trajectory cut off by epoch at %d steps.'%ep_len, flush=True)
                 # if trajectory didn't reach terminal state, bootstrap value target
                 if timeout or epoch_ended:
-                    _, v, _, _, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
+                    _, v, _, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
                 else:
                     v = 0
                 buf.finish_path(v)
@@ -565,7 +561,7 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--max_ep_len', type=int, default=1000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='usl_mc')
+    parser.add_argument('--exp_name', type=str, default='usl_mc_iter10')
     parser.add_argument('--model_save', action='store_true')
     parser.add_argument('--target_kl', type=float, default=0.02)
     args = parser.parse_args()

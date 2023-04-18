@@ -142,16 +142,11 @@ class C_Critic(nn.Module):
     
     # def forward(self, obs, act):
     def forward(self, obs_act):
-        # if len(obs.shape) == 1:
-        #     return self.c_net(torch.cat((obs, act)))
-        # else:
-        #     assert len(obs.shape) == 2
-        #     return self.c_net(torch.cat((obs, act), dim=1))
         return torch.squeeze(self.c_net(obs_act), -1) # Critical to ensure v has right shape.
         
     
     # Get the corrected action 
-    def safety_correction(self, obs, act, prev_cost, delta=0., Niter = 40, eta = 0.05):
+    def safety_correction(self, obs, act, prev_cost, delta=0., Niter = 10, eta = 0.05):
         obs = torch.as_tensor(obs, dtype=torch.float32).to(self.device)
         act = torch.as_tensor(act, dtype=torch.float32).to(self.device)
         act.requires_grad_()
@@ -182,7 +177,7 @@ class MLPActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, 
                  hidden_sizes=(64,64), activation=nn.Tanh):
         super().__init__()
-        self.device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
         obs_dim = observation_space.shape[0]
         act_dim = action_space.shape[0]
@@ -206,9 +201,7 @@ class MLPActorCritic(nn.Module):
             a = pi.sample()
             logp_a = self.pi._log_prob_from_distribution(pi, a)
             v = self.v(obs)
-            # import ipdb; ipdb.set_trace()
-            qc = self.ccritic(torch.cat((obs,a)))
-        return a.cpu().numpy(), v.cpu().numpy(), logp_a.cpu().numpy(), pi.mean.cpu().numpy(), torch.log(pi.stddev).cpu().numpy(), qc.cpu().numpy()
+        return a.cpu().numpy(), v.cpu().numpy(), logp_a.cpu().numpy(), pi.mean.cpu().numpy(), torch.log(pi.stddev).cpu().numpy()
 
     def act(self, obs):
         return self.step(obs)[0]
