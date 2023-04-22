@@ -346,7 +346,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'ghost3Ds_velocity': 0.0001,
         'ghost3Ds_mode': 'avoid',
         'ghost3Ds_contact': True,
-        'ghost3Ds_z_range': [1.0, 1.0],
+        'ghost3Ds_z_range': [1.0, 2.0],
 
         # Frameskip is the number of physics simulation steps per environment step
         # Frameskip is sampled as a binomial distribution
@@ -547,7 +547,10 @@ class Engine(gym.Env, gym.utils.EzPickle):
         if self.observe_goal_comp:
             obs_space_dict['goal_compass'] = gym.spaces.Box(-1.0, 1.0, (len(self.lidar_body),self.compass_shape), dtype=np.float32)
         if self.observe_goal_lidar:
-            obs_space_dict['goal_lidar'] = gym.spaces.Box(0.0, 1.0, (self.lidar_num_bins,), dtype=np.float32)
+            if self.goal_3D:
+                obs_space_dict['goal_lidar'] = gym.spaces.Box(0.0, 1.0, (len(self.lidar_body), self.lidar_num_bins, self.lidar_num_bins3D), dtype=np.float32)
+            else:
+                obs_space_dict['goal_lidar'] = gym.spaces.Box(0.0, 1.0, (self.lidar_num_bins,), dtype=np.float32)
         if self.task == 'circle' and self.observe_circle:
             obs_space_dict['circle_lidar'] = gym.spaces.Box(0.0, 1.0, (self.lidar_num_bins,), dtype=np.float32)
         if self.observe_remaining:
@@ -686,7 +689,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
             conflicted = True
             for _ in range(100):
                 xy = self.draw_placement(placements, keepout)
-                if 'arm' in self.robot_base and 'hazard3D' in name and np.sqrt(np.sum(np.square(xy))) > 1.0:
+                if 'arm' in self.robot_base and 'hazard3D' in name and np.sqrt(np.sum(np.square(xy))) > 2:
                     continue
                 if placement_is_valid(xy, layout):
                     conflicted = False
@@ -872,7 +875,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                     'contype': 0,
                     'conaffinity': 0,
                     'group': GROUP_GOAL,
-                    'rgba': COLOR_GOAL}  # transparent * [1, 1, 1, 0.25]
+                    'rgba': COLOR_GOAL* [1, 1, 1, 0.25]}  # transparent * [1, 1, 1, 0.25]
             world_config['geoms']['goal'] = geom
         if self.hazards_num:
             for i in range(self.hazards_num):
@@ -974,7 +977,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                          'pos': np.r_[self.layout[name.replace('mocap', '')], 2e-2], 
                          'rot': self._ghosts_rots[i],
                          'group': GROUP_GHOST,
-                         'rgba': np.array([1, 1, 1, 0.1]) * COLOR_GHOST}
+                         'rgba': np.array([1, 1, 1, 0.25]) * COLOR_GHOST}
                 world_config['mocaps'][name] = mocap
         if self.ghost3Ds_num:
             for i in range(self.ghost3Ds_num):
@@ -1269,9 +1272,9 @@ class Engine(gym.Env, gym.utils.EzPickle):
         '''
         if self.lidar_type == 'pseudo':
             return self.obs_lidar_pseudo3D(positions)
-        elif self.lidar_type == 'natural':
-            #TODO self.obs_lidar_natural3D
-            return self.obs_lidar_natural(group)
+        # elif self.lidar_type == 'natural':
+        #     #TODO self.obs_lidar_natural3D
+        #     return self.obs_lidar_natural(group)
         else:
             raise ValueError(f'Invalid lidar_type {self.lidar_type}')
 
@@ -1418,7 +1421,10 @@ class Engine(gym.Env, gym.utils.EzPickle):
         if self.observe_goal_comp:
             obs['goal_compass'] = self.obs_compass(self.goal_pos)
         if self.observe_goal_lidar:
-            obs['goal_lidar'] = self.obs_lidar([self.goal_pos], GROUP_GOAL)
+            if self.goal_3D:
+                obs['goal_lidar'] = self.obs_lidar3D([self.goal_pos], GROUP_GOAL)
+            else:
+                obs['goal_lidar'] = self.obs_lidar([self.goal_pos], GROUP_GOAL)
         if self.task == 'push':
             box_pos = self.box_pos
             if self.observe_box_comp:
@@ -1730,7 +1736,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                                 target = ghost_pos_mocap + self.ghost3Ds_velocity*np.r_[direction_norm,0]
                             else:
                                 target = ghost_pos_mocap - self.ghost3Ds_velocity*10*direction_norm
-                        if self.task == 'chase':
+                        elif self.task == 'chase':
                             if norm > 1.5:
                                 target = ghost_pos_mocap
                             else:
@@ -1738,7 +1744,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                         else:
                             if self.ghost3Ds_mode == 'catch':
                                 target = ghost_pos_mocap + self.ghost3Ds_velocity*direction_norm
-                            if self.ghost3Ds_mode == 'avoid' or self.task == 'chase':
+                            if self.ghost3Ds_mode == 'avoid':
                                 target = ghost_pos_mocap - self.ghost3Ds_velocity*direction_norm
                         
                     target[2] = np.clip(target[2], self.ghost3Ds_z_range[0], self.ghost3Ds_z_range[1])              
@@ -1936,6 +1942,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         ''' Render the lidar observation '''
         
         lidar = self.obs_lidar3D(poses, group)
+        rad = self.render_lidar_radius + offset
         for body_idx in range(len(self.lidar_body)):
             body = self.lidar_body[body_idx]
             body_pos = self.world.body_pos(body)
@@ -1944,7 +1951,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 if self.lidar_type == 'pseudo':
                         i += 0.5  # Offset to center of bin
                 theta_xy = 2 * np.pi * i / self.lidar_num_bins
-                rad = self.render_lidar_radius
+                
                 for j, sensor in enumerate(row):
                     if self.lidar_type == 'pseudo':
                         j += 0.5  # Offset to center of bin
@@ -2010,7 +2017,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
 
     def viewer_setup(self):
         # self.viewer.cam.trackbodyid = 0         # id of the body to track ()
-        self.viewer.cam.distance = self.model.stat.extent * 1.0         # how much you "zoom in", model.stat.extent is the max limits of the arena
+        # self.viewer.cam.distance = self.model.stat.extent * 3       # how much you "zoom in", model.stat.extent is the max limits of the arena
+        self.viewer.cam.distance = 5
         self.viewer.cam.lookat[0] = 0         # x,y,z offset from the object (works if trackbodyid=-1)
         self.viewer.cam.lookat[1] = -3
         self.viewer.cam.lookat[2] = 5
@@ -2028,7 +2036,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         if self.viewer is None or mode!=self._old_render_mode:
             # Set camera if specified
             if mode == 'human':
-                print('here1')
+
                 self.viewer = MjViewer(self.sim)
                 self.viewer.cam.fixedcamid = -1
                 self.viewer.cam.type = const.CAMERA_FREE
@@ -2044,8 +2052,9 @@ class Engine(gym.Env, gym.utils.EzPickle):
             self.viewer.vopt.geomgroup[:] = 1
             self._old_render_mode = mode
         # print('here2', self.viewer.cam.fixedcamid)
+        
         self.viewer.update_sim(self.sim)
-
+        self.viewer._hide_overlay = True
         if camera_id is not None:
             # Update camera if desired
             self.viewer.cam.fixedcamid = camera_id
@@ -2055,6 +2064,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         # Lidar markers
         if self.render_lidar_markers:
             offset = self.render_lidar_offset_init  # Height offset for successive lidar indicators
+            offset3D = 0 # Height offset for successive lidar indicators
             if 'box_lidar' in self.obs_space_dict or 'box_compass' in self.obs_space_dict:
                 if 'box_lidar' in self.obs_space_dict:
                     self.render_lidar([self.box_pos], COLOR_BOX, offset, GROUP_BOX)
@@ -2063,10 +2073,14 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 offset += self.render_lidar_offset_delta
             if 'goal_lidar' in self.obs_space_dict or 'goal_compass' in self.obs_space_dict:
                 if 'goal_lidar' in self.obs_space_dict:
-                    self.render_lidar([self.goal_pos], COLOR_GOAL, offset, GROUP_GOAL)
+                    if self.goal_3D:
+                        self.render_lidar3D([self.goal_pos], COLOR_GOAL, offset3D, GROUP_GOAL)
+                        offset3D += self.render_lidar_offset_delta
+                    else:
+                        self.render_lidar([self.goal_pos], COLOR_GOAL, offset, GROUP_GOAL)
                 if 'goal_compass' in self.obs_space_dict:
                     self.render_compass(self.goal_pos, COLOR_GOAL, offset)
-                offset += self.render_lidar_offset_delta
+                    offset += self.render_lidar_offset_delta
             if 'buttons_lidar' in self.obs_space_dict:
                 self.render_lidar(self.buttons_pos, COLOR_BUTTON, offset, GROUP_BUTTON)
                 offset += self.render_lidar_offset_delta
@@ -2080,8 +2094,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 self.render_lidar(self.hazards_pos, COLOR_HAZARD, offset, GROUP_HAZARD)
                 offset += self.render_lidar_offset_delta
             if 'hazard3Ds_lidar' in self.obs_space_dict:
-                self.render_lidar3D(self.hazard3Ds_pos, COLOR_HAZARD3D, offset, GROUP_HAZARD3D)
-                offset += self.render_lidar_offset_delta
+                self.render_lidar3D(self.hazard3Ds_pos, COLOR_HAZARD3D, offset3D, GROUP_HAZARD3D)
+                offset3D += self.render_lidar_offset_delta
             if 'pillars_lidar' in self.obs_space_dict:
                 self.render_lidar(self.pillars_pos, COLOR_PILLAR, offset, GROUP_PILLAR)
                 offset += self.render_lidar_offset_delta
@@ -2092,8 +2106,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 self.render_lidar(self.ghosts_pos, COLOR_GHOST, offset, GROUP_GHOST)
                 offset += self.render_lidar_offset_delta
             if 'ghost3Ds_lidar' in self.obs_space_dict:
-                self.render_lidar3D(self.ghost3Ds_pos, COLOR_GHOST3D, offset, GROUP_GHOST3D)
-                offset += self.render_lidar_offset_delta
+                self.render_lidar3D(self.ghost3Ds_pos, COLOR_GHOST3D, offset3D, GROUP_GHOST3D)
+                offset3D += self.render_lidar_offset_delta
             if 'vases_lidar' in self.obs_space_dict:
                 self.render_lidar(self.vases_pos, COLOR_VASE, offset, GROUP_VASE)
                 offset += self.render_lidar_offset_delta
