@@ -305,7 +305,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Set up experience buffer
     local_steps_per_epoch = int(steps_per_epoch / num_procs())
     buf = PDOBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
-    v = v0
+    # v = v0
 
 
     # def compute_kl_pi(data, cur_pi):
@@ -404,7 +404,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     if model_save:
         logger.setup_pytorch_saver(ac)
 
-    def update():
+    def update(lam, vk, lam_max, eta1, eta2, eta3):
         data = buf.get()
         N = buf.get_buf_size()
         proj = lambda x, L : max(L[0], min(L[1], x))
@@ -451,16 +451,16 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             if(surr_cost[i] >= v):
                 sum_surrcost += 1
         v_bound = target_cost / (1 - gamma)
-        v = proj(v - eta3 * (lam - tmp * sum_surrcost), [-v_bound, v_bound])
+        v = proj(vk - eta3 * (lam - tmp * sum_surrcost), [-v_bound, v_bound])
 
 
         t1 = 1 / N * g * loss_pi
         t2 = 0
         for j in range(N):
-            if(surr_cost[j] >= v):
+            if(surr_cost[j] >= vk):
                 loss_pi_j, _ = compute_loss_pi_j(data, ac.pi, j)
                 gj = auto_grad(loss_pi_j, ac.pi)
-                t2 += gj * (sum_surrcost[j] - v)
+                t2 += gj * (sum_surrcost[j] - vk)
         theta = get_net_param_np_vec(ac.pi)
         theta = theta - eta2 * (t1 + lam / ((1-alpha) * N) * t2)
         assign_net_param_from_flat(theta, ac.pi)
@@ -476,7 +476,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         if(abs(lam - lam_old) < EPS):
             lam_max = 2 * lam_max
 
-
+        
         # # solve QP
         # # decide optimization cases (feas/infeas, recovery)
         # # Determine optim_case (switch condition for calculation,
@@ -598,6 +598,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                      DeltaLossPi=(loss_pi.item() - pi_l_old),
                      DeltaLossV=(loss_v.item() - v_l_old),
                      DeltaLossCost=(surr_cost.item() - surr_cost_old))
+        return lam, v, lam_max
 
     # Prepare for interaction with environment
     start_time = time.time()
@@ -611,6 +612,12 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     ep_cost_ret, ep_cost = 0, 0
     cum_cost = 0
 
+    lam = 0.97
+    vk=1
+    lam_max=1 
+    eta1=0.001 
+    eta2=0.01 
+    eta3=0.1
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
@@ -667,7 +674,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             logger.save_state({'env': env}, None)
 
         # Perform CPO update!
-        update()
+        lam, vk, lam_max = update(lam, vk, lam_max, eta1, eta2, eta3)
         
         #=====================================================================#
         #  Cumulative cost calculations                                       #
