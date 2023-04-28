@@ -59,7 +59,7 @@ class PDOBuffer:
         self.ptr += 1
 
     def get_buf_size(self):
-        return self.ptr
+        return self.max_size
     
     def finish_path(self, last_val=0, last_cost_val=0):
         """
@@ -348,6 +348,19 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         surr_cost = (ratio * adc).mean()
         
         return surr_cost
+    
+    def compute_cost_pi_j(data, cur_pi, j):
+        """
+        Return the suggorate cost for current policy
+        """
+        obs, act, adc, logp_old = data['obs'], data['act'], data['adc'], data['logp']
+        
+        # Surrogate cost function 
+        pi, logp = cur_pi(obs, act)
+        ratio = torch.exp(logp - logp_old)
+        surr_cost_j = ratio * adc
+        surr_cost_j = surr_cost_j[j]
+        return surr_cost_j
         
     def compute_loss_pi(data, cur_pi):
         """
@@ -444,31 +457,37 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         approx_g = Hx(Hinv_g)           # g
         # q        = np.clip(Hinv_g.T @ approx_g, 0.0, None)  # g.T / H @ g
         q        = Hinv_g.T @ approx_g # g^T H^{-1} g
-        
+
         tmp = lam / (N * (1 - alpha))
         sum_surrcost = 0
         for i in range(N):
-            if(surr_cost[i] >= v):
+            if(compute_cost_pi_j(data, ac.pi, i) >= vk):
                 sum_surrcost += 1
         v_bound = target_cost / (1 - gamma)
         v = proj(vk - eta3 * (lam - tmp * sum_surrcost), [-v_bound, v_bound])
-
-
-        t1 = 1 / N * g * loss_pi
-        t2 = 0
+        
+        t1 = 0
         for j in range(N):
-            if(surr_cost[j] >= vk):
+            loss_pi_j, _ = compute_loss_pi_j(data, ac.pi, j)
+            gj = auto_grad(loss_pi_j, ac.pi)
+            t1 += gj * loss_pi_j.item()
+        t1 = 1 / N * t1
+        t2 = 0
+        # print(surr_cost)
+        for j in range(N):
+            # print(surr_cost)
+            if(compute_cost_pi_j(data, ac.pi, j) >= vk):
                 loss_pi_j, _ = compute_loss_pi_j(data, ac.pi, j)
                 gj = auto_grad(loss_pi_j, ac.pi)
-                t2 += gj * (sum_surrcost[j] - vk)
+                t2 += gj * (compute_cost_pi_j(data, ac.pi, j).item() - vk)
         theta = get_net_param_np_vec(ac.pi)
         theta = theta - eta2 * (t1 + lam / ((1-alpha) * N) * t2)
         assign_net_param_from_flat(theta, ac.pi)
 
         t3 = 0
         for j in range(N):
-            if(surr_cost[j] >= v):
-                t2 += sum_surrcost[j] - v
+            if(compute_cost_pi_j(data, ac.pi, j).item() >= vk):
+                t3 += compute_cost_pi_j(data, ac.pi, j).item() - vk
         
         lam_old = lam
         lam = lam + eta1 * (v - beta + 1 / ((1-alpha) * N) * t3)
