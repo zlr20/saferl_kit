@@ -364,7 +364,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
     def compute_loss_pi(data, cur_pi):
         """
-        The reward objective for CPO (CPO policy loss)
+        The reward objective for PDO (PDO policy loss)
         """
         obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
         
@@ -382,7 +382,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     
     def compute_loss_pi_j(data, cur_pi, j):
         """
-        The reward objective for CPO (CPO policy loss)
+        The reward objective for PDO (PDO policy loss)
         """
         obs, act, adv, logp_old = data['obs'][j], data['act'][j], data['adv'][j], data['logp'][j]
         
@@ -430,7 +430,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         v_l_old = compute_loss_v(data).item()
 
 
-        # CPO policy update core impelmentation 
+        # PDO policy update core impelmentation 
         loss_pi, pi_info = compute_loss_pi(data, ac.pi)
         surr_cost = compute_cost_pi(data, ac.pi)
         
@@ -452,7 +452,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         rescale  = EpLen
         c /= (rescale + EPS)
         
-        # core calculation for CPO
+        # core calculation for PDO
         Hinv_g   = cg(Hx, g)             # Hinv_g = H \ g      H^{-1}g   
         approx_g = Hx(Hinv_g)           # g
         # q        = np.clip(Hinv_g.T @ approx_g, 0.0, None)  # g.T / H @ g
@@ -504,7 +504,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         #     Hinv_b, r, s, A, B = 0, 0, 0, 0, 0
         #     optim_case = 4
         # else:
-        #     # cost grad is nonzero: CPO update!
+        #     # cost grad is nonzero: PDO update!
         #     Hinv_b = cg(Hx, b)                # H^{-1} b
         #     r = Hinv_b.T @ approx_g          # b^T H^{-1} g
         #     s = Hinv_b.T @ Hx(Hinv_b)        # b^T H^{-1} b
@@ -692,7 +692,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         if ((epoch % save_freq == 0) or (epoch == epochs-1)) and model_save:
             logger.save_state({'env': env}, None)
 
-        # Perform CPO update!
+        # Perform PDO update!
         lam, vk, lam_max = update(lam, vk, lam_max, eta1, eta2, eta3)
         
         #=====================================================================#
@@ -734,7 +734,7 @@ if __name__ == '__main__':
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
     parser.add_argument('--target_cost', type=float, default=0.) # the cost limit for the environment
-    parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for CPO
+    parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for PDO
     parser.add_argument('--cost_reduction', type=float, default=0.) # the cost_reduction limit when current policy is infeasible
     parser.add_argument('--hid', type=int, default=64)
     parser.add_argument('--l', type=int, default=2)
@@ -743,7 +743,7 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='cpo')
+    parser.add_argument('--exp_name', type=str, default='pdo')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 
