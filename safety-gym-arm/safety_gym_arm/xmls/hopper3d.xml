@@ -64,7 +64,7 @@
         <subtreeangmom body="robot" name="subtreeangmom"/>
    </sensor>
    <actuator>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="50.0" joint="thigh_joint"/>
+    <!-- <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="50.0" joint="thigh_joint"/> -->
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="20.0" joint="leg_joint"/>
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="20.0" joint="foot_joint"/>
     <motor gear="20" joint="hip_x" name="hip_x"/>
