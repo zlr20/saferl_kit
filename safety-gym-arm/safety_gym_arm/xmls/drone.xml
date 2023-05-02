@@ -12,9 +12,6 @@
         <geom name="floor" size="5 5 0.1" type="plane" condim="6"/>
         <body name="robot" pos="0 0 1.0">
             <camera name="vision" pos="0 0 .15" xyaxes="0 -1 0 .4 0 1" fovy="90"/>
-            <!-- <geom name="camera" pos="-.2 0 0" type="sphere" size=".05"/> -->
-            <!-- <freejoint name="robot"/> -->
-            <!-- <joint type="ball" name="joint_1"/> -->
             <joint armature="0" axis="1 0 0" damping="0.5" limited="false" name="slidex" pos="0 0 0" stiffness="0" type="slide"/>
             <joint armature="0" axis="0 1 0" damping="0.5" limited="false" name="slidey" pos="0 0 0" stiffness="0" type="slide"/>
             <joint armature="0" axis="0 0 1" damping="0.2" limited="false" name="slidez" pos="0 0 0" stiffness="0" type="slide"/>
@@ -55,8 +52,4 @@
         <subtreelinvel body="robot" name="subtreelinvel"/>
         <subtreeangmom body="robot" name="subtreeangmom"/>
     </sensor>
-    <!-- <actuator>
-        <motor gear="0.3 0 0 0 0 0" site="robot" name="x"/>
-        <velocity gear="0.3" jointinparent="z" name="z"/>
-    </actuator> -->
 </mujoco>
