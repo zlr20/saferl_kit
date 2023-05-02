@@ -11,40 +11,42 @@ def run_random(env_name):
     # env = gym.make(env_name)
     config = {
         'robot_base': 'xmls/drone.xml',
+        # 'sensors_obs': ['accelerometer', 'velocimeter', 'gyro', 'magnetometer'],
         'goal_3D': True,
         # 'goal_travel': 1.5,
         # 'goal_mode': 'track',
         # 'num_steps': 2000,
-        'arm_link_n': 3,
+        # 'arm_link_n': 3,
         'task': 'goal',
         'push_object': 'ball',
-        # 'observe_goal_lidar': False,
+        'observe_goal_lidar': True,
         'compass_shape': 3,
         'goal_size': 0.5,
         'observe_goal_comp': True,
         # 'observe_box_lidar': False,
         # 'observe_box_comp': True,
         'observe_hazards': False,
-        'observe_hazard3Ds': False,
+        'observe_pillars': False,
+        'observe_hazard3Ds': True,
         # 'observe_ghosts': True,
         'observe_ghost3Ds': False,
         'hazard3Ds_size': 0.3,
         'hazard3Ds_z_range': [0.5,1.5],
         'observe_vases': False,
         'constrain_hazards': False,
-        'constrain_hazard3Ds': False,
-        # 'observation_flatten': True,
+        'constrain_hazard3Ds': True,
+        'observation_flatten': False,
         'lidar_max_dist': 4,
         'lidar_num_bins': 10,
         'lidar_num_bins3D': 6,
         # 'lidar_body': ['link_1', 'link_3', 'link_5','link_7'],
         'render_lidar_radius': 0.25,
-        'hazard3Ds_num': 0,
+        'hazard3Ds_num': 8,
         'hazard3Ds_size': 0.3,
         'hazard3Ds_keepout':0.5,
         # 'hazard3Ds_locations':[(0.0,1.5)],
         'hazards_num': 0,
-        'hazards_keepout':0.5,
+        # 'hazards_keepout':0.5,
         'vases_num': 0,
         # 'vases_size': 0.2,
         # 'robot_locations':[(0.0,0.0)],
@@ -151,8 +153,8 @@ def run_random(env_name):
 
         #     act[1] = -10.0
 
-        # if cnt != 0:
-        #     key = getkey()
+        if cnt != 0:
+            key = getkey()
             # if key == "w":
             #     act[0] = 1.0
             # if key == "s":
@@ -209,6 +211,7 @@ def run_random(env_name):
 
         # assert env.action_space.contains(act)
         obs, reward, done, info = env.step(act)
+        # print(obs['touch_point1'])
         # print(obs['accelerometer_link_2'])
         # joint = []
         # for i in range(6):

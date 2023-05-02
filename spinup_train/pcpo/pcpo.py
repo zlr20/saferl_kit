@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class PCPOBuffer:
@@ -354,7 +354,8 @@ def pcpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # Policy loss 
         pi, logp = cur_pi(obs, act)
         ratio = torch.exp(logp - logp_old)
-        loss_pi = -(ratio * adv).mean()
+        # loss_pi = -(ratio * adv).mean()
+        loss_pi = (ratio * adv).mean() # the gradient of PCPO requires is for (maximize J) instead of (minimize -J)
         
         # Useful extra info
         approx_kl = (logp_old - logp).mean().item()
@@ -627,7 +628,8 @@ if __name__ == '__main__':
     exp_name = args.task + '_' + args.exp_name \
                 + '_' + 'kl' + str(args.target_kl) \
                 + '_' + 'target_cost' + str(args.target_cost) \
-                + '_' + 'kl_proj' + str(kl_proj)
+                + '_' + 'kl_proj' + str(kl_proj) \
+                + '_' + 'epochs' + str(args.epochs) 
                 
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 

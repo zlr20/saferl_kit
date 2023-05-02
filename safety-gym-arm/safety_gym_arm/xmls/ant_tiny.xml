@@ -74,13 +74,14 @@
     </body>
   </worldbody>
   <sensor>
-        <touch site="ankle_1a" name="touch_ankle_1a"/>
-        <touch site="ankle_1b" name="touch_ankle_1b"/>
+        <touch site="ankle_1a" name="touch_ankle_1a"/>      
         <touch site="ankle_2a" name="touch_ankle_2a"/>
-        <touch site="ankle_2b" name="touch_ankle_2b"/>
         <touch site="ankle_3a" name="touch_ankle_3a"/>
-        <touch site="ankle_3b" name="touch_ankle_3b"/>
         <touch site="ankle_4a" name="touch_ankle_4a"/>
+
+        <touch site="ankle_1b" name="touch_ankle_1b"/>
+        <touch site="ankle_2b" name="touch_ankle_2b"/>  
+        <touch site="ankle_3b" name="touch_ankle_3b"/>        
         <touch site="ankle_4b" name="touch_ankle_4b"/>
 
         <jointpos joint="hip_1" name="jointpos_hip_1"/>

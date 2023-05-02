@@ -52,10 +52,10 @@
         <jointvel joint="joint_3" name="jointvel_joint_3"/>
 
         <!-- Used for observation -->
-        <accelerometer site="robot" name="accelerometer"/>
+        <!-- <accelerometer site="robot" name="accelerometer"/>
         <velocimeter site="robot" name="velocimeter"/>
         <gyro site="robot" name="gyro"/>
-        <magnetometer site="robot" name="magnetometer"/>
+        <magnetometer site="robot" name="magnetometer"/> -->
 
         <accelerometer site="center_link_1" name="accelerometer_link_1"/>
         <velocimeter site="center_link_1" name="velocimeter_link_1"/>
