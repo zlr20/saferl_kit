@@ -570,8 +570,7 @@ if __name__ == '__main__':
     mpi_fork(args.cpu)  # run parallel code with mpi
     
     exp_name = args.task + '_' + args.exp_name \
-                + '_' + 'target_cost' + str(args.target_cost) \
-                + '_' + 'lam_lr' + str(args.lam_lr)
+                + '_' + 'epochs' + str(args.epochs)
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model

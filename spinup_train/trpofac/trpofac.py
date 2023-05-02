@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class TRPOFACBuffer:
@@ -573,7 +573,8 @@ if __name__ == '__main__':
     
     exp_name = args.task + '_' + args.exp_name \
                 + '_' + 'target_cost' + str(args.target_cost) \
-                + '_' + 'lam_lr' + str(args.lam_lr)
+                + '_' + 'lam_lr' + str(args.lam_lr) \
+                + '_' + 'epochs' + str(args.epochs)
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model
