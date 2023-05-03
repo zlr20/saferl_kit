@@ -15,10 +15,10 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
-class PDOBuffer:
+class PdoBuffer:
     """
     A buffer for storing trajectories experienced by a PPO agent interacting
     with the environment, and using Generalized Advantage Estimation (GAE-Lambda)
@@ -58,9 +58,6 @@ class PDOBuffer:
         self.logstd_buf[self.ptr]   = logstd
         self.ptr += 1
 
-    def get_buf_size(self):
-        return self.max_size
-    
     def finish_path(self, last_val=0, last_cost_val=0):
         """
         Call this at the end of a trajectory, or when one gets cut off
@@ -178,7 +175,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=50, gamma=0.99, pi_lr=3e-4,
         vf_lr=1e-3, vcf_lr=1e-3, train_v_iters=80, train_vc_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, target_cost = 1.5, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, 
-        backtrack_iters=100, model_save=False, cost_reduction=0, alpha=0.5, beta=0.5, v0=1, lam_max=1, eta1=0.001, eta2=0.01, eta3=0.1):
+        backtrack_iters=100, model_save=False, cost_reduction=0):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -304,8 +301,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Set up experience buffer
     local_steps_per_epoch = int(steps_per_epoch / num_procs())
-    buf = PDOBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
-    # v = v0
+    buf = PdoBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
 
 
     # def compute_kl_pi(data, cur_pi):
@@ -348,43 +344,12 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         surr_cost = (ratio * adc).mean()
         
         return surr_cost
-    
-    def compute_cost_pi_j(data, cur_pi, j):
-        """
-        Return the suggorate cost for current policy
-        """
-        obs, act, adc, logp_old = data['obs'], data['act'], data['adc'], data['logp']
-        
-        # Surrogate cost function 
-        pi, logp = cur_pi(obs, act)
-        ratio = torch.exp(logp - logp_old)
-        surr_cost_j = ratio * adc
-        surr_cost_j = surr_cost_j[j]
-        return surr_cost_j
         
     def compute_loss_pi(data, cur_pi):
         """
-        The reward objective for PDO (PDO policy loss)
+        The reward objective for pdo (pdo policy loss)
         """
         obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
-        
-        # Policy loss 
-        pi, logp = cur_pi(obs, act)
-        ratio = torch.exp(logp - logp_old)
-        loss_pi = -(ratio * adv).mean()
-        
-        # Useful extra info
-        approx_kl = (logp_old - logp).mean().item()
-        ent = pi.entropy().mean().item()
-        pi_info = dict(kl=approx_kl, ent=ent)
-        
-        return loss_pi, pi_info
-    
-    def compute_loss_pi_j(data, cur_pi, j):
-        """
-        The reward objective for PDO (PDO policy loss)
-        """
-        obs, act, adv, logp_old = data['obs'][j], data['act'][j], data['adv'][j], data['logp'][j]
         
         # Policy loss 
         pi, logp = cur_pi(obs, act)
@@ -417,11 +382,9 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     if model_save:
         logger.setup_pytorch_saver(ac)
 
-    def update(lam, vk, lam_max, eta1, eta2, eta3):
+    def update(nu):
         data = buf.get()
-        N = buf.get_buf_size()
-        proj = lambda x, L : max(L[0], min(L[1], x))
-        
+
         # log the loss objective and cost function and value function for old policy
         pi_l_old, pi_info_old = compute_loss_pi(data, ac.pi)
         pi_l_old = pi_l_old.item()
@@ -430,7 +393,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         v_l_old = compute_loss_v(data).item()
 
 
-        # PDO policy update core impelmentation 
+        # pdo policy update core impelmentation 
         loss_pi, pi_info = compute_loss_pi(data, ac.pi)
         surr_cost = compute_cost_pi(data, ac.pi)
         
@@ -439,8 +402,8 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         Hx = lambda x: auto_hession_x(kl_div, ac.pi, torch.FloatTensor(x).to(device))
         
         # linearize the loss objective and cost function
-        g = auto_grad(loss_pi, ac.pi) # get the loss flatten gradient evaluted at pi old. Policy gradient
-        b = auto_grad(surr_cost, ac.pi) # get the cost flatten gradient evaluted at pi old. Constraint gradient
+        g = auto_grad(loss_pi, ac.pi) # get the loss flatten gradient evaluted at pi old 
+        b = auto_grad(surr_cost, ac.pi) # get the cost flatten gradient evaluted at pi old
         
         # get the Episoe cost
         EpLen = logger.get_stats('EpLen')[0]
@@ -452,147 +415,67 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         rescale  = EpLen
         c /= (rescale + EPS)
         
-        # core calculation for PDO
-        Hinv_g   = cg(Hx, g)             # Hinv_g = H \ g      H^{-1}g   
+        # core calculation for pdo
+        Hinv_g   = cg(Hx, g)             # Hinv_g = H \ g        
         approx_g = Hx(Hinv_g)           # g
         # q        = np.clip(Hinv_g.T @ approx_g, 0.0, None)  # g.T / H @ g
-        q        = Hinv_g.T @ approx_g # g^T H^{-1} g
-
-        tmp = lam / (N * (1 - alpha))
-        sum_surrcost = 0
-        for i in range(N):
-            if(compute_cost_pi_j(data, ac.pi, i) >= vk):
-                sum_surrcost += 1
-        v_bound = target_cost / (1 - gamma)
-        v = proj(vk - eta3 * (lam - tmp * sum_surrcost), [-v_bound, v_bound])
+        q        = Hinv_g.T @ approx_g
         
-        t1 = 0
-        for j in range(N):
-            loss_pi_j, _ = compute_loss_pi_j(data, ac.pi, j)
-            gj = auto_grad(loss_pi_j, ac.pi)
-            t1 += gj * loss_pi_j.item()
-        t1 = 1 / N * t1
-        t2 = 0
-        # print(surr_cost)
-        for j in range(N):
-            # print(surr_cost)
-            if(compute_cost_pi_j(data, ac.pi, j) >= vk):
-                loss_pi_j, _ = compute_loss_pi_j(data, ac.pi, j)
-                gj = auto_grad(loss_pi_j, ac.pi)
-                t2 += gj * (compute_cost_pi_j(data, ac.pi, j).item() - vk)
-        theta = get_net_param_np_vec(ac.pi)
-        theta = theta - eta2 * (t1 + lam / ((1-alpha) * N) * t2)
-        assign_net_param_from_flat(theta, ac.pi)
-
-        t3 = 0
-        for j in range(N):
-            if(compute_cost_pi_j(data, ac.pi, j).item() >= vk):
-                t3 += compute_cost_pi_j(data, ac.pi, j).item() - vk
-        
-        lam_old = lam
-        lam = lam + eta1 * (v - beta + 1 / ((1-alpha) * N) * t3)
-        lam = proj(lam, [0, lam_max])
-        if(abs(lam - lam_old) < EPS):
-            lam_max = 2 * lam_max
-
-        
-        # # solve QP
-        # # decide optimization cases (feas/infeas, recovery)
-        # # Determine optim_case (switch condition for calculation,
-        # # based on geometry of constrained optimization problem)
+        # solve QP
+        # decide optimization cases (feas/infeas, recovery)
+        # Determine optim_case (switch condition for calculation,
+        # based on geometry of constrained optimization problem)
         # if b.T @ b <= 1e-8 and c < 0:
         #     Hinv_b, r, s, A, B = 0, 0, 0, 0, 0
-        #     optim_case = 4
         # else:
-        #     # cost grad is nonzero: PDO update!
+        #     # cost grad is nonzero: pdo update!
         #     Hinv_b = cg(Hx, b)                # H^{-1} b
         #     r = Hinv_b.T @ approx_g          # b^T H^{-1} g
         #     s = Hinv_b.T @ Hx(Hinv_b)        # b^T H^{-1} b
         #     A = q - r**2 / s            # should be always positive (Cauchy-Shwarz)
         #     B = 2*target_kl - c**2 / s  # does safety boundary intersect trust region? (positive = yes)
+            
+        t = g - nu * b
+        Hinv_t = cg(Hx, t)
+        s = Hinv_t.T @ Hx(Hinv_t) # (g-vb)^T H^{-1} (g-vg)
 
-        #     # c < 0: feasible
+        # normal step if optim_case > 0, but for optim_case =0,
+        # perform infeasible recovery: step to purely decrease cost
+        x_direction = np.sqrt(2 * target_kl / (s+EPS)) * Hinv_t
+        
+        # copy an actor to conduct line search 
+        actor_tmp = copy.deepcopy(ac.pi)
+        def set_and_eval(step):
+            new_param = get_net_param_np_vec(ac.pi) - step * x_direction
+            assign_net_param_from_flat(new_param, actor_tmp)
+            kl = compute_kl_pi(data, actor_tmp)
+            pi_l, _ = compute_loss_pi(data, actor_tmp)
+            surr_cost = compute_cost_pi(data, actor_tmp)
+            
+            return kl, pi_l, surr_cost
+        
+        # update the policy such that the KL diveragence constraints are satisfied and loss is decreasing
+        for j in range(backtrack_iters):
+            try:
+                kl, pi_l_new, surr_cost_new = set_and_eval(backtrack_coeff**j)
+            except:
+                import ipdb; ipdb.set_trace()
+            
+            if (kl.item() <= target_kl and
+                 # if current policy is feasible (optim>1), must preserve pi loss
+                # surr_cost_new - surr_cost_old <= max(-c,0)):
+                surr_cost_new - surr_cost_old <= max(-c,-cost_reduction)):
 
-        #     if c < 0 and B < 0:
-        #         # point in trust region is feasible and safety boundary doesn't intersect
-        #         # ==> entire trust region is feasible
-        #         optim_case = 3
-        #     elif c < 0 and B >= 0:
-        #         # x = 0 is feasible and safety boundary intersects
-        #         # ==> most of trust region is feasible
-        #         optim_case = 2
-        #     elif c >= 0 and B >= 0:
-        #         # x = 0 is infeasible and safety boundary intersects
-        #         # ==> part of trust region is feasible, recovery possible
-        #         optim_case = 1
-        #         print(colorize(f'Alert! Attempting feasible recovery!', 'yellow', bold=True))
-        #     else:
-        #         # x = 0 infeasible, and safety halfspace is outside trust region
-        #         # ==> whole trust region is infeasible, try to fail gracefully
-        #         optim_case = 0
-        #         print(colorize(f'Alert! Attempting INFEASIBLE recovery!', 'red', bold=True))
-        
-        # print(colorize(f'optim_case: {optim_case}', 'magenta', bold=True))
-        
-        
-        # # get optimal theta-theta_k direction
-        # if optim_case in [3,4]:
-        #     lam = np.sqrt(q / (2*target_kl))
-        #     nu = 0
-        # elif optim_case in [1,2]:
-        #     LA, LB = [0, r /c], [r/c, np.inf]
-        #     LA, LB = (LA, LB) if c < 0 else (LB, LA)
-        #     proj = lambda x, L : max(L[0], min(L[1], x))
-        #     lam_a = proj(np.sqrt(A/B), LA)
-        #     lam_b = proj(np.sqrt(q/(2*target_kl)), LB)
-        #     f_a = lambda lam : -0.5 * (A / (lam+EPS) + B * lam) - r*c/(s+EPS)
-        #     f_b = lambda lam : -0.5 * (q / (lam+EPS) + 2 * target_kl * lam)
-        #     lam = lam_a if f_a(lam_a) >= f_b(lam_b) else lam_b
-        #     # nu = max(0, lam * c - r) / (np.clip(s,0.,None)+EPS)
-        #     nu = max(0, lam * c - r) / (s+EPS)
-        # else:
-        #     lam = 0
-        #     # nu = np.sqrt(2 * target_kl / (np.clip(s,0.,None)+EPS))
-        #     nu = np.sqrt(2 * target_kl / (s+EPS))
-            
-        # # normal step if optim_case > 0, but for optim_case =0,
-        # # perform infeasible recovery: step to purely decrease cost
-        # x_direction = (1./(lam+EPS)) * (Hinv_g + nu * Hinv_b) if optim_case > 0 else nu * Hinv_b
-        
-        # # copy an actor to conduct line search 
-        # actor_tmp = copy.deepcopy(ac.pi)
-        # def set_and_eval(step):
-        #     new_param = get_net_param_np_vec(ac.pi) - step * x_direction
-        #     assign_net_param_from_flat(new_param, actor_tmp)
-        #     kl = compute_kl_pi(data, actor_tmp)
-        #     pi_l, _ = compute_loss_pi(data, actor_tmp)
-        #     surr_cost = compute_cost_pi(data, actor_tmp)
-            
-        #     return kl, pi_l, surr_cost
-        
-        # # update the policy such that the KL diveragence constraints are satisfied and loss is decreasing
-        # for j in range(backtrack_iters):
-        #     try:
-        #         kl, pi_l_new, surr_cost_new = set_and_eval(backtrack_coeff**j)
-        #     except:
-        #         import ipdb; ipdb.set_trace()
-            
-        #     if (kl.item() <= target_kl and
-        #         (pi_l_new.item() <= pi_l_old if optim_case > 1 else True) and # if current policy is feasible (optim>1), must preserve pi loss
-        #         # surr_cost_new - surr_cost_old <= max(-c,0)):
-        #         surr_cost_new - surr_cost_old <= max(-c,-cost_reduction)):
+                # update the policy parameter 
+                new_param = get_net_param_np_vec(ac.pi) - backtrack_coeff**j * x_direction
+                assign_net_param_from_flat(new_param, ac.pi)
+                nu = nu + 0.01 * c
                 
-        #         print(colorize(f'Accepting new params at step %d of line search.'%j, 'green', bold=False))
-                
-        #         # update the policy parameter 
-        #         new_param = get_net_param_np_vec(ac.pi) - backtrack_coeff**j * x_direction
-        #         assign_net_param_from_flat(new_param, ac.pi)
-                
-        #         loss_pi, pi_info = compute_loss_pi(data, ac.pi) # re-evaluate the pi_info for the new policy
-        #         surr_cost = compute_cost_pi(data, ac.pi) # re-evaluate the surr_cost for the new policy
-        #         break
-        #     if j==backtrack_iters-1:
-        #         print(colorize(f'Line search failed! Keeping old params.', 'yellow', bold=False))
+                loss_pi, pi_info = compute_loss_pi(data, ac.pi) # re-evaluate the pi_info for the new policy
+                surr_cost = compute_cost_pi(data, ac.pi) # re-evaluate the surr_cost for the new policy
+                break
+            if j==backtrack_iters-1:
+                print(colorize(f'Line search failed! Keeping old params.', 'yellow', bold=False))
 
         # Value function learning
         for i in range(train_v_iters):
@@ -617,7 +500,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                      DeltaLossPi=(loss_pi.item() - pi_l_old),
                      DeltaLossV=(loss_v.item() - v_l_old),
                      DeltaLossCost=(surr_cost.item() - surr_cost_old))
-        return lam, v, lam_max
+        return nu
 
     # Prepare for interaction with environment
     start_time = time.time()
@@ -631,12 +514,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     ep_cost_ret, ep_cost = 0, 0
     cum_cost = 0
 
-    lam = 0.97
-    vk=1
-    lam_max=1 
-    eta1=0.001 
-    eta2=0.01 
-    eta3=0.1
+    nu = 0.1
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
@@ -692,8 +570,8 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         if ((epoch % save_freq == 0) or (epoch == epochs-1)) and model_save:
             logger.save_state({'env': env}, None)
 
-        # Perform PDO update!
-        lam, vk, lam_max = update(lam, vk, lam_max, eta1, eta2, eta3)
+        # Perform pdo update!
+        nu = update(nu)
         
         #=====================================================================#
         #  Cumulative cost calculations                                       #
@@ -734,7 +612,7 @@ if __name__ == '__main__':
     parser.add_argument('--task', type=str, default='Mygoal4')
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
     parser.add_argument('--target_cost', type=float, default=0.) # the cost limit for the environment
-    parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for PDO
+    parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for pdo
     parser.add_argument('--cost_reduction', type=float, default=0.) # the cost_reduction limit when current policy is infeasible
     parser.add_argument('--hid', type=int, default=64)
     parser.add_argument('--l', type=int, default=2)
