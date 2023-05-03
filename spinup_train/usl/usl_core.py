@@ -151,7 +151,7 @@ class C_Critic(nn.Module):
         
     
     # Get the corrected action 
-    def safety_correction(self, obs, act, prev_cost, delta=0., Niter = 40, eta = 0.05):
+    def safety_correction(self, obs, act, prev_cost, delta=0., Niter = 20, eta = 0.05):
         obs = torch.as_tensor(obs, dtype=torch.float32).to(self.device)
         act = torch.as_tensor(act, dtype=torch.float32).to(self.device)
         act.requires_grad_()

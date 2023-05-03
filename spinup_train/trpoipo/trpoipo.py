@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class TRPOIPOBuffer:
@@ -348,8 +348,8 @@ def trpoipo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         for i in range(n_epi):
             j = np.where(epi_id == i)[0][0]
             k = np.where(epi_id == i)[0][-1] + 1
-            ratio = torch.exp( torch.sum(logp[j:k]) - torch.sum(logp_old[j:k]) )
-            J_C_pi += ( ratio * torch.sum(cost[j:k]) )
+            ratio = torch.exp( torch.sum(logp[j:k]) - torch.sum(logp_old[j:k]))
+            J_C_pi += ( ratio * torch.sum(cost[j:k]))
         J_C_pi /= n_epi
         J_C_pi_tild = J_C_pi - torch.as_tensor(target_cost, dtype=torch.float32).to(device)
         phi = torch.log(-torch.clamp(J_C_pi_tild, max=-1e-8)) / t_ipo
@@ -564,7 +564,7 @@ if __name__ == '__main__':
 
     mpi_fork(args.cpu)  # run parallel code with mpi
     
-    exp_name = args.task + '_' + args.exp_name + '_' + 't' + str(args.t_ipo)
+    exp_name = args.task + '_' + args.exp_name + '_' + 't' + str(args.t_ipo) + '-' + 'epochs' + str(args.epochs)
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model
