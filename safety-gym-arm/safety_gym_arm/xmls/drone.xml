@@ -25,22 +25,39 @@
             <body name="p1" pos="0.3 0.0 0.0">
                 <geom fromto="0.0 0.0 -0.1 0.0 0.0 0.1" name="p1_body" size="0.03" type="capsule"/>
                 <site name="p1" rgba="1 0 1 .1"/>
+                <site name="p1a" pos="0.0 0.0 0.1" rgba="1 0 1 .5"/>
+                <site name="p1b" pos="0.0 0.0 -0.1" rgba="1 1 0 .5"/>
             </body>
             <body name="p2" pos="0.0 0.3  0.0">
                 <geom fromto="0.0 0.0 -0.1 0.0 0.0 0.1" name="p2_body" size="0.03" type="capsule"/>
                 <site name="p2" rgba="0 1 0 .1"/>
+                <site name="p2a" pos="0.0 0.0 0.1" rgba="1 0 1 .5"/>
+                <site name="p2b" pos="0.0 0.0 -0.1" rgba="1 1 0 .5"/>
             </body>
             <body name="p3" pos="-0.3 0.0 0.0">
                 <geom fromto="0.0 0.0 -0.1 0.0 0.0 0.1" name="p3_body" size="0.03" type="capsule"/>
                 <site name="p3" rgba="0 0 1 .1"/>
+                <site name="p3a" pos="0.0 0.0 0.1" rgba="1 0 1 .5"/>
+                <site name="p3b" pos="0.0 0.0 -0.1" rgba="1 1 0 .5"/>
             </body>
             <body name="p4" pos="0.0 -0.3 0.0">
                 <geom fromto="0.0 0.0 -0.1 0.0 0.0 0.1" name="p4_body" size="0.03" type="capsule"/>
                 <site name="p4" rgba="0 1 1 .1"/>
+                <site name="p4a" pos="0.0 0.0 0.1" rgba="1 0 1 .5"/>
+                <site name="p4b" pos="0.0 0.0 -0.1" rgba="1 1 0 .5"/>
             </body>
         </body>
     </worldbody>
     <sensor>
+        <touch site="p1a" name="touch_p1a"/>
+        <touch site="p1b" name="touch_p1b"/>
+        <touch site="p2a" name="touch_p2a"/>
+        <touch site="p2b" name="touch_p2b"/>
+        <touch site="p3a" name="touch_p3a"/>
+        <touch site="p3b" name="touch_p3b"/>
+        <touch site="p4a" name="touch_p4a"/>
+        <touch site="p4b" name="touch_p4b"/>
+
         <!-- Used for observation -->
         <accelerometer site="robot" name="accelerometer"/>
         <velocimeter site="robot" name="velocimeter"/>

@@ -31,6 +31,8 @@ COLOR_CIRCLE = np.array([0, 1, 0, 1])
 COLOR_RED = np.array([1, 0, 0, 1])
 COLOR_GHOST = np.array([1, 0, 0.5, 1])
 COLOR_GHOST3D = np.array([1, 0, 0.5, 1])
+COLOR_ROBBER = np.array([1, 1, 0.5, 1])
+COLOR_ROBBER3D = np.array([1, 1, 0.5, 1])
 
 # Groups are a mujoco-specific mechanism for selecting which geom objects to "see"
 # We use these for raycasting lidar, where there are different lidar types.
@@ -46,8 +48,11 @@ GROUP_VASE = 4
 GROUP_GREMLIN = 5
 GROUP_CIRCLE = 6
 GROUP_HAZARD3D = 3
-GROUP_GHOST = 5
-GROUP_GHOST3D = 5
+GROUP_GHOST = 3
+GROUP_GHOST3D = 3
+GROUP_ROBBER = 5
+GROUP_ROBBER3D = 5
+
 
 
 # Constant for origin of world
@@ -148,6 +153,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'observe_gremlins': False,  # Gremlins are observed with lidar-like space
         'observe_ghosts': False,  # Ghosts are observed with lidar-like space
         'observe_ghost3Ds': False,  # Ghosts are observed with lidar-like space
+        'observe_robbers': False,  # Robbers are observed with lidar-like space
+        'observe_robber3Ds': False,  # Robbers are observed with lidar-like space
         'observe_vision': False,  # Observe vision from the robot
         # These next observations are unnormalized, and are only for debugging
         'observe_qpos': False,  # Observe the qpos of the world
@@ -170,8 +177,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'vision_render_size': (300, 200),  # Size to render the vision in the viewer
 
         # Lidar observation parameters
-        'lidar_num_bins': 10,  # Bins (around a full circle) for lidar sensing
-        'lidar_num_bins3D': 5,  # Bins (around a full circle) for lidar sensing
+        'lidar_num_bins': 16,  # Bins (around a full circle) for lidar sensing
+        'lidar_num_bins3D': 1,  # Bins (around a full circle) for lidar sensing
         'lidar_max_dist': None,  # Maximum distance for lidar sensitivity (if None, exponential distance)
         'lidar_exp_gain': 1.0, # Scaling factor for distance in exponential distance lidar
         'lidar_type': 'pseudo',  # 'pseudo', 'natural', see self.obs_lidar()
@@ -183,8 +190,6 @@ class Engine(gym.Env, gym.utils.EzPickle):
 
         # Task
         'task': 'goal',  # goal, button, push, x, z, circle, or none (for screenshots)
-        'goal_3D': False,
-        'goal_z_range': [1,1.5],  # range of z pos of goal, only for 3D goal
         'push_object': 'box', # box, ball
         'goal_mode': 'random', # random, track. only apply when continue_goal is true
         'goal_travel': 3.0,  # Radius of the circle goal can travel in
@@ -195,6 +200,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'goal_locations': [],  # Fixed locations to override placements
         'goal_keepout': 0.4,  # Keepout radius when placing goals
         'goal_size': 0.3,  # Radius of the goal area (if using task 'goal')
+        'goal_3D': False,
+        'goal_z_range': [1.0, 1.0],  # range of z pos of goal, only for 3D goal
 
         # Box parameters (only used if task == 'push')
         'box_placements': None,  # Box placements list (defaults to full extents)
@@ -219,8 +226,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'reward_z': 1.0,  # Reward for standup tests (vel in z direction)
         'reward_circle': 1e-1,  # Reward for circle goal (complicated formula depending on pos and vel)
         'reward_clip': 10,  # Clip reward, last resort against physics errors causing magnitude spikes
-        'reward_defense': 1.0, # Reward for the ghost be outside of the circle
-        'reward_chase': 1.0, # Reward for the closest distance from the robot to the ghost
+        'reward_defense': 1.0, # Reward for the robbers be outside of the circle
+        'reward_chase': 1.0, # Reward for the closest distance from the robot to the robbers
 
         # Buttons are small immovable spheres, to the environment
         'buttons_num': 0,  # Number of buttons to add
@@ -233,7 +240,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
 
         # Circle parameters (only used if task == 'circle' or 'defense')
         'circle_radius': 1.5,
-        'defense_range': 2,
+        'defense_range': 2.0,
+        'chase_range': 3.0,
 
         # Sensor observations
         # Specify which sensors to add to observation space
@@ -330,8 +338,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'ghosts_contact_cost': 1.0,  # Cost for touching a gremlin
         'ghosts_dist_cost': 1.0,  # Cost for being within distance threshold
         'ghosts_velocity': 0.0001,
-        'ghosts_mode': 'avoid',
-        'ghosts_contact': True,
+        'ghosts_contact': False,
+        'ghosts_safe_dist': 0,
 
         # 3D Ghosts (hazards moving towards / away from the robot)
         'ghost3Ds_num': 0,  # Number of ghosts in the world
@@ -341,12 +349,35 @@ class Engine(gym.Env, gym.utils.EzPickle):
         'ghost3Ds_travel': 2,  # Radius of the circle traveled in
         'ghost3Ds_size': 0.1,  # Half-size (radius) of ghost objects
         'ghost3Ds_density': 1,  # Density of ghosts
-        'ghost3Ds_contact_cost': 1.0,  # Cost for touching a gremlin
+        'ghost3Ds_contact_cost': 1.0,  # Cost for touching a ghost
         'ghost3Ds_dist_cost': 1.0,  # Cost for being within distance threshold
         'ghost3Ds_velocity': 0.0001,
-        'ghost3Ds_mode': 'avoid',
-        'ghost3Ds_contact': True,
-        'ghost3Ds_z_range': [1.0, 2.0],
+        'ghost3Ds_contact': False,
+        'ghost3Ds_z_range': [0.0, 0.0],
+        'ghost3Ds_safe_dist': 0.1,
+
+        # Robbers (targets moving away from the robot)
+        'robbers_num': 0,  # Number of robbers in the world
+        'robbers_placements': None,  # Robbers placements list (defaults to full extents)
+        'robbers_locations': [],  # Fixed locations to override placements
+        'robbers_keepout': 0.5,  # Radius for keeping out
+        'robbers_travel': 2,  # Radius of the circle traveled in
+        'robbers_size': 0.1,  # Half-size (radius) of robber objects
+        'robbers_density': 0.00001,  # Density of robbers
+        'robbers_velocity': 0.0001,
+        'robbers_contact': False,
+
+        # 3D Robbers (targets moving away from the robot)
+        'robber3Ds_num': 0,  # Number of robbers in the world
+        'robber3Ds_placements': None,  # Robbers placements list (defaults to full extents)
+        'robber3Ds_locations': [],  # Fixed locations to override placements
+        'robber3Ds_keepout': 0.5,  # Radius for keeping out
+        'robber3Ds_travel': 2,  # Radius of the circle traveled in
+        'robber3Ds_size': 0.1,  # Half-size (radius) of robber objects
+        'robber3Ds_density': 1,  # Density of robbers
+        'robber3Ds_velocity': 0.0001,
+        'robber3Ds_contact': False,
+        'robber3Ds_z_range': [0.0, 0.0],
 
         # Frameskip is the number of physics simulation steps per environment step
         # Frameskip is sampled as a binomial distribution
@@ -371,6 +402,10 @@ class Engine(gym.Env, gym.utils.EzPickle):
 
         # Load up a simulation of the robot, just to figure out observation space
         self.robot = Robot(self.robot_base)
+        if 'arm_6' in self.robot_base:
+            self.arm_link_n = 7
+        if 'arm_3' in self.robot_base:
+            self.arm_link_n = 5
 
         self.action_space = gym.spaces.Box(-1, 1, (self.robot.nu,), dtype=np.float32)
         self.build_observation_space()
@@ -464,11 +499,27 @@ class Engine(gym.Env, gym.utils.EzPickle):
     
     @property
     def ghost3Ds_pos(self):
-        ''' Helper to get the current ghost position '''
+        ''' Helper to get the current 3D ghost position '''
         if self.ghost3Ds_contact:
             return [self.data.get_body_xpos(f'ghost3D{i}obj').copy() for i in range(self.ghost3Ds_num)]
         else:
             return [self.data.get_body_xpos(f'ghost3D{i}mocap').copy() + np.r_[self.layout[f'ghost3D{i}'],self._ghost3Ds_z[i]] for i in range(self.ghost3Ds_num)]
+
+    @property
+    def robbers_pos(self):
+        ''' Helper to get the current robber position '''
+        if self.robbers_contact:
+            return [self.data.get_body_xpos(f'robber{i}obj').copy() for i in range(self.robbers_num)]
+        else:
+            return [self.data.get_body_xpos(f'robber{i}mocap').copy()  + np.r_[self.layout[f'robber{i}'], 2e-2] for i in range(self.robbers_num)]
+    
+    @property
+    def robber3Ds_pos(self):
+        ''' Helper to get the current 3D robber position '''
+        if self.robber3Ds_contact:
+            return [self.data.get_body_xpos(f'robber3D{i}obj').copy() for i in range(self.robber3Ds_num)]
+        else:
+            return [self.data.get_body_xpos(f'robber3D{i}mocap').copy() + np.r_[self.layout[f'robber3D{i}'],self._robber3Ds_z[i]] for i in range(self.robber3Ds_num)]
 
     @property
     def pillars_pos(self):
@@ -569,6 +620,10 @@ class Engine(gym.Env, gym.utils.EzPickle):
             obs_space_dict['ghosts_lidar'] = gym.spaces.Box(0.0, 1.0, (self.lidar_num_bins,), dtype=np.float32)
         if self.ghost3Ds_num and self.observe_ghost3Ds:
             obs_space_dict['ghost3Ds_lidar'] = gym.spaces.Box(0.0, 1.0, (len(self.lidar_body), self.lidar_num_bins, self.lidar_num_bins3D), dtype=np.float32)
+        if self.robbers_num and self.observe_robbers:
+            obs_space_dict['robbers_lidar'] = gym.spaces.Box(0.0, 1.0, (self.lidar_num_bins,), dtype=np.float32)
+        if self.robber3Ds_num and self.observe_robber3Ds:
+            obs_space_dict['robber3Ds_lidar'] = gym.spaces.Box(0.0, 1.0, (len(self.lidar_body), self.lidar_num_bins, self.lidar_num_bins3D), dtype=np.float32)
         if self.pillars_num and self.observe_pillars:
             obs_space_dict['pillars_lidar'] = gym.spaces.Box(0.0, 1.0, (self.lidar_num_bins,), dtype=np.float32)
         if self.buttons_num and self.observe_buttons:
@@ -655,6 +710,10 @@ class Engine(gym.Env, gym.utils.EzPickle):
             placements.update(self.placements_dict_from_object('ghost'))
         if self.ghost3Ds_num: #self.constrain_ghosts:
             placements.update(self.placements_dict_from_object('ghost3D'))
+        if self.robbers_num: #self.constrain_robbers:
+            placements.update(self.placements_dict_from_object('robber'))
+        if self.robber3Ds_num: #self.constrain_robbers:
+            placements.update(self.placements_dict_from_object('robber3D'))
 
         self.placements = placements
 
@@ -831,6 +890,38 @@ class Engine(gym.Env, gym.utils.EzPickle):
                             'group': GROUP_GHOST3D,
                             'rgba': COLOR_GHOST3D}
                     world_config['objects'][name] = object
+        if self.robbers_num:
+            self._robbers_rots = dict()
+            for i in range(self.robbers_num):
+                name = f'robber{i}obj'
+                self._robbers_rots[i] = self.random_rot()
+                if self.robbers_contact:
+                    object = {'name': name,
+                            'size': [self.robbers_size, self.robbers_size / 2],
+                            'type': 'cylinder',
+                            'density': self.robbers_density,
+                            'pos': np.r_[self.layout[name.replace('obj', '')], self.robbers_size / 2 + 1e-2],
+                            'rot': self._robbers_rots[i],
+                            'group': GROUP_ROBBER,
+                            'rgba': COLOR_ROBBER}
+                    world_config['objects'][name] = object
+        if self.robber3Ds_num:
+            self._robber3Ds_rots = dict()
+            self._robber3Ds_z = dict()
+            for i in range(self.robber3Ds_num):
+                name = f'robber3D{i}obj'
+                self._robber3Ds_rots[i] = self.random_rot()
+                self._robber3Ds_z[i] = np.random.uniform(self.robber3Ds_z_range[0], self.robber3Ds_z_range[1])
+                if self.robber3Ds_contact:
+                    object = {'name': name,
+                            'size': [self.robber3Ds_size],
+                            'type': 'sphere',
+                            'density': self.robber3Ds_density,
+                            'pos': np.r_[self.layout[name.replace('obj', '')], self._robber3Ds_z[i]],
+                            'rot': self._robber3Ds_rots[i],
+                            'group': GROUP_ROBBER3D,
+                            'rgba': COLOR_ROBBER3D}
+                    world_config['objects'][name] = object
         if self.task == 'push':
             if self.push_object == 'box':
                 object = {'name': 'box',
@@ -994,6 +1085,32 @@ class Engine(gym.Env, gym.utils.EzPickle):
                          'group': GROUP_GHOST3D,
                          'rgba': rgba}
                 world_config['mocaps'][name] = mocap
+        if self.robbers_num:
+            for i in range(self.robbers_num):
+                name = f'robber{i}mocap'
+                mocap = {'name': name,
+                         'size': [self.robbers_size, 1e-2],
+                         'type': 'cylinder',
+                         'pos': np.r_[self.layout[name.replace('mocap', '')], 2e-2], 
+                         'rot': self._robbers_rots[i],
+                         'group': GROUP_ROBBER,
+                         'rgba': np.array([1, 1, 1, 0.25]) * COLOR_ROBBER}
+                world_config['mocaps'][name] = mocap
+        if self.robber3Ds_num:
+            for i in range(self.robber3Ds_num):
+                name = f'robber3D{i}mocap'
+                if self.robber3Ds_contact:
+                    rgba = np.array([1, 1, 1, 0]) * COLOR_ROBBER3D
+                else:
+                    rgba = np.array([1, 1, 1, 0.25]) * COLOR_ROBBER3D
+                mocap = {'name': name,
+                         'size': [self.robber3Ds_size],
+                         'type': 'sphere',
+                         'pos': np.r_[self.layout[name.replace('mocap', '')], self._robber3Ds_z[i]], 
+                         'rot': self._robber3Ds_rots[i],
+                         'group': GROUP_ROBBER3D,
+                         'rgba': rgba}
+                world_config['mocaps'][name] = mocap
 
         return world_config
 
@@ -1116,7 +1233,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         self.steps = 0  # Count of steps taken in this episode
         # Set the button timer to zero (so button is immediately visible)
         self.buttons_timer = 0
-        self.last_dist_ghost = -1
+        # self.last_dist_ghost = -1
+        self.last_dist_robber = -1
         for _ in range(100):
             self.clear()
             self.build()
@@ -1141,8 +1259,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
     def dist_goal(self):
         ''' Return the distance from the robot to the goal XY position '''
         if 'arm' in self.robot_base:
-             end_pos = self.arm_end_pos
-             return np.sqrt(np.sum(np.square(self.goal_pos - end_pos)))
+            end_pos = self.arm_end_pos
+            return np.sqrt(np.sum(np.square(self.goal_pos - end_pos)))
         if self.goal_3D:
              return self.dist_xyz(self.goal_pos)
         return self.dist_xy(self.goal_pos)
@@ -1150,6 +1268,9 @@ class Engine(gym.Env, gym.utils.EzPickle):
     def dist_box(self):
         ''' Return the distance from the robot to the box (in XY plane only) '''
         assert self.task == 'push', f'invalid task {self.task}'
+        if 'arm' in self.robot_base:
+            end_pos = self.arm_end_pos
+            return np.sqrt(np.sum(np.square(self.box_pos - end_pos)))
         return np.sqrt(np.sum(np.square(self.box_pos - self.world.robot_pos())))
 
     def dist_box_goal(self):
@@ -1478,6 +1599,10 @@ class Engine(gym.Env, gym.utils.EzPickle):
             obs['ghosts_lidar'] = self.obs_lidar(self.ghosts_pos, GROUP_GHOST)
         if self.ghost3Ds_num and self.observe_ghost3Ds:
             obs['ghost3Ds_lidar'] = self.obs_lidar3D(self.ghost3Ds_pos, GROUP_GHOST3D)
+        if self.robbers_num and self.observe_robbers:
+            obs['robbers_lidar'] = self.obs_lidar(self.robbers_pos, GROUP_ROBBER)
+        if self.robber3Ds_num and self.observe_robber3Ds:
+            obs['robber3Ds_lidar'] = self.obs_lidar3D(self.robber3Ds_pos, GROUP_ROBBER3D)
         if self.pillars_num and self.observe_pillars:
             obs['pillars_lidar'] = self.obs_lidar(self.pillars_pos, GROUP_PILLAR)
         if self.buttons_num and self.observe_buttons:
@@ -1635,7 +1760,11 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 target = np.array([np.sin(phase), np.cos(phase)]) * self.gremlins_travel
                 pos = np.r_[target, [self.gremlins_size]]
                 self.data.set_mocap_pos(name + 'mocap', pos)
-        if self.ghosts_num: # self.constrain_gremlins:
+        if 'arm' in self.robot_base:
+            robot_pos = self.arm_end_pos
+        else:
+            robot_pos = self.world.robot_pos()
+        if self.ghosts_num:
             phase = float(self.data.time)
             ghost_pos_last_dict = []
             for i in range(self.ghosts_num):
@@ -1643,12 +1772,6 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 ghost_origin = self.layout[name]
                 ghost_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
                 ghost_pos_last_dict.append(ghost_pos_mocap[:2] + ghost_origin)
-            ghost3D_pos_last_dict = []
-            for i in range(self.ghost3Ds_num):
-                name = f'ghost3D{i}'
-                ghost_origin = np.r_[self.layout[name], self._ghost3Ds_z[i]]
-                ghost_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
-                ghost3D_pos_last_dict.append(ghost_pos_mocap + ghost_origin)
             for i in range(self.ghosts_num):
                 name = f'ghost{i}'
                 ghost_origin = self.layout[name]
@@ -1660,40 +1783,21 @@ class Engine(gym.Env, gym.utils.EzPickle):
                     if j != i and np.sqrt(np.sum(np.square(dist_ij))) < 2 * self.ghosts_size:
                         direction = - dist_ij / np.sqrt(np.sum(np.square(dist_ij)))
                         target += self.ghosts_velocity*direction
-                for j in range(self.ghost3Ds_num):
-                    dist_ij = ghost3D_pos_last_dict[j][:2] - ghost_pos_last_dict[i]
-                    if np.sqrt(np.sum(np.square(dist_ij))) < self.ghost3Ds_size + self.ghosts_size:
-                        direction = - dist_ij / np.sqrt(np.sum(np.square(dist_ij)))
-                        target += self.ghosts_velocity*direction
                 if np.sqrt(np.sum(np.square(ghost_pos_last))) > self.ghosts_travel:
                     direction = - ghost_pos_last / np.sqrt(np.sum(np.square(ghost_pos_last)))
                     target += self.ghosts_velocity*direction
                 else:
-                    if 'arm' in self.robot_base:
-                        robot_pos = self.arm_end_pos
-                    else:
-                        robot_pos = self.world.robot_pos()
                     direction = robot_pos[:2] - ghost_pos_last
                     norm = np.sqrt(np.sum(np.square(direction)))
                     direction_norm = direction / norm
-                    if norm < 1:  
+                    if norm < self.ghosts_safe_dist:  
                         target = ghost_pos_mocap[:2]
                     else:
-                        if self.ghosts_mode == 'catch':
-                            target = ghost_pos_mocap[:2] + self.ghosts_velocity*direction_norm
-                        if self.ghosts_mode == 'avoid':
-                            target = ghost_pos_mocap[:2] - self.ghosts_velocity*direction_norm
+                        target = ghost_pos_mocap[:2] + self.ghosts_velocity*direction_norm
                 
                 pos = np.r_[target, 2e-2]
                 self.data.set_mocap_pos(name + 'mocap', pos)
-        if self.ghost3Ds_num: # self.constrain_gremlins:
-            phase = float(self.data.time)
-            ghost_pos_last_dict = []
-            for i in range(self.ghosts_num):
-                name = f'ghost{i}'
-                ghost_origin = self.layout[name]
-                ghost_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
-                ghost_pos_last_dict.append(ghost_pos_mocap[:2] + ghost_origin)
+        if self.ghost3Ds_num:
             ghost3D_pos_last_dict = []
             for i in range(self.ghost3Ds_num):
                 name = f'ghost3D{i}'
@@ -1706,11 +1810,6 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 ghost_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
                 ghost_pos_last = ghost_pos_mocap + ghost_origin
                 target =  ghost_pos_mocap
-                for j in range(self.ghosts_num):
-                    dist_ij = np.r_[ghost_pos_last_dict[j], self._ghost3Ds_z[i]] - ghost3D_pos_last_dict[i]
-                    if np.sqrt(np.sum(np.square(dist_ij))) < self.ghost3Ds_size + self.ghosts_size:
-                        direction = - dist_ij / np.sqrt(np.sum(np.square(dist_ij)))
-                        target += self.ghost3Ds_velocity*direction
                 for j in range(self.ghost3Ds_num):
                     dist_ij = ghost3D_pos_last_dict[j] - ghost3D_pos_last_dict[i]
                     if j != i and np.sqrt(np.sum(np.square(dist_ij))) < 2 * self.ghost3Ds_size:
@@ -1720,35 +1819,99 @@ class Engine(gym.Env, gym.utils.EzPickle):
                     direction = - ghost_pos_last[:2] / np.sqrt(np.sum(np.square(ghost_pos_last[:2])))
                     target += np.r_[self.ghost3Ds_velocity*direction, 0]
                 else:
-                    if 'arm' in self.robot_base:
-                        robot_pos = self.arm_end_pos
-                    else:
-                        robot_pos = self.world.robot_pos()
                     direction = robot_pos - ghost_pos_last
                     norm = np.sqrt(np.sum(np.square(direction)))
                     direction_norm = direction / norm
-                    if norm < 0.01: 
+                    if norm < self.ghost3Ds_safe_dist: 
                         target = ghost_pos_mocap
                     else:
-                        if self.task == 'defense':
-                            if norm > self.defense_range:
-                                direction_norm = - ghost_pos_last[:2] / np.sqrt(np.sum(np.square(ghost_pos_last[:2])))
-                                target = ghost_pos_mocap + self.ghost3Ds_velocity*np.r_[direction_norm,0]
-                            else:
-                                target = ghost_pos_mocap - self.ghost3Ds_velocity*10*direction_norm
-                        elif self.task == 'chase':
-                            if norm > 1.5:
-                                target = ghost_pos_mocap
-                            else:
-                                target = ghost_pos_mocap - self.ghost3Ds_velocity*10*direction_norm
-                        else:
-                            if self.ghost3Ds_mode == 'catch':
-                                target = ghost_pos_mocap + self.ghost3Ds_velocity*direction_norm
-                            if self.ghost3Ds_mode == 'avoid':
-                                target = ghost_pos_mocap - self.ghost3Ds_velocity*direction_norm
+                        target = ghost_pos_mocap + self.ghost3Ds_velocity*direction_norm
                         
-                    target[2] = np.clip(target[2], self.ghost3Ds_z_range[0], self.ghost3Ds_z_range[1])              
+                target[2] = np.clip(target[2], self.ghost3Ds_z_range[0], self.ghost3Ds_z_range[1])              
+                pos = target
+                self.data.set_mocap_pos(name + 'mocap', pos)
+        if self.robbers_num: 
+            robber_pos_last_dict = []
+            for i in range(self.robbers_num):
+                name = f'robber{i}'
+                robber_origin = self.layout[name]
+                robber_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
+                robber_pos_last_dict.append(robber_pos_mocap[:2] + robber_origin)
+            for i in range(self.robbers_num):
+                name = f'robber{i}'
+                robber_origin = self.layout[name]
+                robber_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
+                robber_pos_last = robber_pos_mocap[:2] + robber_origin
+                target =  robber_pos_mocap[:2]
+                for j in range(self.robbers_num):
+                    dist_ij = robber_pos_last_dict[j] - robber_pos_last_dict[i]
+                    if j != i and np.sqrt(np.sum(np.square(dist_ij))) < 2 * self.robbers_size:
+                        direction = - dist_ij / np.sqrt(np.sum(np.square(dist_ij)))
+                        target += self.robbers_velocity*direction
+                if np.sqrt(np.sum(np.square(robber_pos_last))) > self.robbers_travel:
+                    direction = - robber_pos_last / np.sqrt(np.sum(np.square(robber_pos_last)))
+                    target += self.robbers_velocity*direction
+                else:
+                    direction = robot_pos[:2] - robber_pos_last
+                    norm = np.sqrt(np.sum(np.square(direction)))
+                    direction_norm = direction / norm
+                    if self.task == 'defense':
+                        if norm > self.defense_range:
+                            direction_norm = - robber_pos_last[:2] / np.sqrt(np.sum(np.square(robber_pos_last[:2])))
+                            target = robber_pos_mocap[:2] + self.robbers_velocity*direction_norm
+                        else:
+                            target = robber_pos_mocap[:2] - self.robbers_velocity*10*direction_norm
+                    elif self.task == 'chase':
+                        if norm > self.chase_range:
+                            target = robber_pos_mocap[:2]
+                        else:
+                            target = robber_pos_mocap[:2] - self.robbers_velocity*10*direction_norm
+                    else:
+                        target = robber_pos_mocap[:2] - self.robbers_velocity*direction_norm
                 
+                pos = np.r_[target, 2e-2]
+                self.data.set_mocap_pos(name + 'mocap', pos)
+        if self.robber3Ds_num: # self.constrain_gremlins:
+            phase = float(self.data.time)
+            robber3D_pos_last_dict = []
+            for i in range(self.robber3Ds_num):
+                name = f'robber3D{i}'
+                robber_origin = np.r_[self.layout[name], self._robber3Ds_z[i]]
+                robber_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
+                robber3D_pos_last_dict.append(robber_pos_mocap + robber_origin)
+            for i in range(self.robber3Ds_num):
+                name = f'robber3D{i}'
+                robber_origin = np.r_[self.layout[name], self._robber3Ds_z[i]]
+                robber_pos_mocap = self.data.get_body_xpos(name +'mocap').copy()
+                robber_pos_last = robber_pos_mocap + robber_origin
+                target =  robber_pos_mocap
+                for j in range(self.robber3Ds_num):
+                    dist_ij = robber3D_pos_last_dict[j] - robber3D_pos_last_dict[i]
+                    if j != i and np.sqrt(np.sum(np.square(dist_ij))) < 2 * self.robber3Ds_size:
+                        direction = - dist_ij / np.sqrt(np.sum(np.square(dist_ij)))
+                        target += self.robber3Ds_velocity*direction
+                if np.sqrt(np.sum(np.square(robber_pos_last[:2]))) > self.robber3Ds_travel:
+                    direction = - robber_pos_last[:2] / np.sqrt(np.sum(np.square(robber_pos_last[:2])))
+                    target += np.r_[self.robber3Ds_velocity*direction, 0]
+                else:
+                    direction = robot_pos - robber_pos_last
+                    norm = np.sqrt(np.sum(np.square(direction)))
+                    direction_norm = direction / norm
+                    if self.task == 'defense':
+                        if norm > self.defense_range:
+                            direction_norm = - robber_pos_last[:2] / np.sqrt(np.sum(np.square(robber_pos_last[:2])))
+                            target = robber_pos_mocap + self.robber3Ds_velocity*np.r_[direction_norm,0]
+                        else:
+                            target = robber_pos_mocap - self.robber3Ds_velocity*10*direction_norm
+                    elif self.task == 'chase':
+                        if norm > self.chase_range:
+                            target = robber_pos_mocap
+                        else:
+                            target = robber_pos_mocap - self.robber3Ds_velocity*10*direction_norm
+                    else:
+                        target = robber_pos_mocap - self.robbers_velocity*direction_norm
+                        
+                target[2] = np.clip(target[2], self.robber3Ds_z_range[0], self.robber3Ds_z_range[1])              
                 pos = target
                 self.data.set_mocap_pos(name + 'mocap', pos)
     def update_layout(self):
@@ -1756,7 +1919,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         self.sim.forward()
         for k in list(self.layout.keys()):
             # Mocap objects have to be handled separately
-            if 'gremlin' in k or 'ghost' in k:
+            if 'gremlin' in k or 'ghost' in k or 'robber' in k:
                 continue
             self.layout[k] = self.data.get_body_xpos(k)[:2].copy()
 
@@ -1893,14 +2056,14 @@ class Engine(gym.Env, gym.utils.EzPickle):
             radius = np.sqrt(x**2 + y**2)
             reward += (((-u*y + v*x)/radius)/(1 + np.abs(radius - self.circle_radius))) * self.reward_circle
         if self.task == 'chase':
-            dist_ghost = 100
-            for h_pos in self.ghost3Ds_pos:
-                dist_ghost = min(dist_ghost, self.dist_xyz(h_pos))
-            if self.last_dist_ghost != -1:
-                reward += (self.last_dist_ghost - dist_ghost) * self.reward_chase
-            self.last_dist_ghost = dist_ghost
+            dist_robber = 1000
+            for h_pos in self.robber3Ds_pos:
+                dist_robber = min(dist_robber, self.dist_xyz(h_pos))
+            if self.last_dist_robber != -1:
+                reward += (self.last_dist_robber - dist_robber) * self.reward_chase
+            self.last_dist_robber = dist_robber
         if self.task == 'defense':
-            for h_pos in self.ghost3Ds_pos:
+            for h_pos in self.robber3Ds_pos:
                 dist = np.sqrt(np.sum(np.square(h_pos))) / self.circle_radius - 1
                 if dist < 0:
                     reward += dist * self.reward_defense
@@ -2064,7 +2227,7 @@ class Engine(gym.Env, gym.utils.EzPickle):
         # Lidar markers
         if self.render_lidar_markers:
             offset = self.render_lidar_offset_init  # Height offset for successive lidar indicators
-            offset3D = 0 # Height offset for successive lidar indicators
+            offset3D = 0.1 # Height offset for successive lidar indicators
             if 'box_lidar' in self.obs_space_dict or 'box_compass' in self.obs_space_dict:
                 if 'box_lidar' in self.obs_space_dict:
                     self.render_lidar([self.box_pos], COLOR_BOX, offset, GROUP_BOX)
@@ -2078,9 +2241,9 @@ class Engine(gym.Env, gym.utils.EzPickle):
                         offset3D += self.render_lidar_offset_delta
                     else:
                         self.render_lidar([self.goal_pos], COLOR_GOAL, offset, GROUP_GOAL)
+                        offset += self.render_lidar_offset_delta
                 if 'goal_compass' in self.obs_space_dict:
                     self.render_compass(self.goal_pos, COLOR_GOAL, offset)
-                    offset += self.render_lidar_offset_delta
             if 'buttons_lidar' in self.obs_space_dict:
                 self.render_lidar(self.buttons_pos, COLOR_BUTTON, offset, GROUP_BUTTON)
                 offset += self.render_lidar_offset_delta
@@ -2107,6 +2270,12 @@ class Engine(gym.Env, gym.utils.EzPickle):
                 offset += self.render_lidar_offset_delta
             if 'ghost3Ds_lidar' in self.obs_space_dict:
                 self.render_lidar3D(self.ghost3Ds_pos, COLOR_GHOST3D, offset3D, GROUP_GHOST3D)
+                offset3D += self.render_lidar_offset_delta
+            if 'robbers_lidar' in self.obs_space_dict:
+                self.render_lidar(self.robbers_pos, COLOR_ROBBER, offset, GROUP_ROBBER3D)
+                offset += self.render_lidar_offset_delta
+            if 'robber3Ds_lidar' in self.obs_space_dict:
+                self.render_lidar3D(self.robber3Ds_pos, COLOR_ROBBER3D, offset3D, GROUP_ROBBER3D)
                 offset3D += self.render_lidar_offset_delta
             if 'vases_lidar' in self.obs_space_dict:
                 self.render_lidar(self.vases_pos, COLOR_VASE, offset, GROUP_VASE)

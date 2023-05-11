@@ -6,117 +6,203 @@ import safety_gym_arm  # noqa
 import numpy as np  # noqa
 from safety_gym_arm.envs.engine import Engine
 from getkey import getkey, keys
+from my_config import configuration
 
 def run_random(env_name):
     # env = gym.make(env_name)
-    config = {
-        'robot_base': 'xmls/drone.xml',
-        # 'sensors_obs': ['accelerometer', 'velocimeter', 'gyro', 'magnetometer'],
-        'goal_3D': True,
-        # 'goal_travel': 1.5,
-        # 'goal_mode': 'track',
-        # 'num_steps': 2000,
-        # 'arm_link_n': 3,
-        'task': 'goal',
-        'push_object': 'ball',
-        'observe_goal_lidar': True,
-        'compass_shape': 3,
-        'goal_size': 0.5,
-        'observe_goal_comp': True,
-        # 'observe_box_lidar': False,
-        # 'observe_box_comp': True,
-        'observe_hazards': False,
-        'observe_pillars': False,
-        'observe_hazard3Ds': True,
-        # 'observe_ghosts': True,
-        'observe_ghost3Ds': False,
-        'hazard3Ds_size': 0.3,
-        'hazard3Ds_z_range': [0.5,1.5],
-        'observe_vases': False,
-        'constrain_hazards': False,
-        'constrain_hazard3Ds': True,
-        'observation_flatten': False,
-        'lidar_max_dist': 4,
-        'lidar_num_bins': 10,
-        'lidar_num_bins3D': 6,
-        # 'lidar_body': ['link_1', 'link_3', 'link_5','link_7'],
-        'render_lidar_radius': 0.25,
-        'hazard3Ds_num': 8,
-        'hazard3Ds_size': 0.3,
-        'hazard3Ds_keepout':0.5,
-        # 'hazard3Ds_locations':[(0.0,1.5)],
-        'hazards_num': 0,
-        # 'hazards_keepout':0.5,
-        'vases_num': 0,
-        # 'vases_size': 0.2,
-        # 'robot_locations':[(0.0,0.0)],
-        'robot_rot':-1,
-        'constrain_indicator':False,
-        'hazards_cost':1.0,
-        'gremlins_num': 0,
+    # config = {
+    #     'robot_base': 'xmls/arm_6.xml',
+    #     # 'sensors_obs': ['accelerometer', 'velocimeter', 'gyro', 'magnetometer'],
+    #     'goal_3D': True,
+    #     # 'goal_travel': 1.5,
+    #     # 'goal_mode': 'track',
+    #     # 'num_steps': 2000,
+    #     'task': 'push',
+    #     'push_object': 'ball',
+    #     'observe_goal_lidar': True,
+    #     'compass_shape': 3,
+    #     'goal_size': 0.5,
+    #     'observe_goal_comp': True,
+    #     # 'observe_box_lidar': False,
+    #     # 'observe_box_comp': True,
+    #     'observe_hazards': False,
+    #     'observe_pillars': False,
+    #     'observe_hazard3Ds': True,
+    #     # 'observe_ghosts': True,
+    #     'observe_ghost3Ds': True,
+    #     'hazard3Ds_size': 0.3,
+    #     'hazard3Ds_z_range': [0.5,1.5],
+    #     'observe_vases': False,
+    #     'constrain_hazards': False,
+    #     'constrain_hazard3Ds': True,
+    #     'observation_flatten': False,
+    #     'lidar_max_dist': 4,
+    #     'lidar_num_bins': 10,
+    #     'lidar_num_bins3D': 6,
+    #     'render_lidar_radius': 0.25,
+    #     'hazard3Ds_num': 0,
+    #     'hazard3Ds_size': 0.3,
+    #     'hazard3Ds_keepout':0.5,
+    #     # 'hazard3Ds_locations':[(0.0,1.5)],
+    #     'hazards_num': 0,
+    #     # 'hazards_keepout':0.5,
+    #     'vases_num': 0,
+    #     # 'vases_size': 0.2,
+    #     # 'robot_locations':[(0.0,0.0)],
+    #     'robot_rot':-1,
+    #     'constrain_indicator':False,
+    #     'hazards_cost':1.0,
+    #     'gremlins_num': 0,
 
 
-        'ghost3Ds_num': 0,
-        'ghost3Ds_size': 0.2,
-        'ghost3Ds_mode':'catch',
-        'ghost3Ds_travel':2.5,
-        'ghost3Ds_velocity': 0.0001,
-        'ghost3Ds_z_range': [0.1, 3.1],
-        'constrain_ghost3Ds': True,
-        'ghost3Ds_contact':True,
+    #     'ghost3Ds_num': 8,
+    #     'ghost3Ds_size': 0.2,
+    #     # 'ghost3Ds_mode':'catch',
+    #     'ghost3Ds_keepout': 0.2,
+    #     'ghost3Ds_travel':3.0,
+    #     'ghost3Ds_velocity': 0.001,
+    #     'ghost3Ds_z_range': [0.1, 3.0],
+    #     'constrain_ghost3Ds': True,
+    #     'ghost3Ds_contact':False,
 
-        'constrain_ghosts': True,
-        'ghosts_num': 0,
-        'ghosts_size': 0.3,
-        'ghosts_mode': 'catch',
-        'ghosts_travel':1.5,
-        'ghosts_velocity': 0.001,
-        'ghosts_contact':False,
+    #     'constrain_ghosts': True,
+    #     'ghosts_num': 0,
+    #     'ghosts_size': 0.3,
+    #     # 'ghosts_mode': 'catch',
+    #     'ghosts_travel':1.5,
+    #     'ghosts_velocity': 0.001,
+    #     'ghosts_contact':False,
+
+    #     # 'constrain_robbers': True,
+    #     'robbers_num': 2,
+    #     'robbers_size': 0.3,
+    #     # 'robbers_mode': 'catch',
+    #     'robbers_travel':0,
+    #     'robbers_velocity': 0.001,
+    #     'robbers_contact':False,
+
+    #     'robber3Ds_num': 0,
+    #     'robber3Ds_size': 0.3,
+    #     # 'robbers_mode': 'catch',
+    #     'robber3Ds_travel':1.5,
+    #     'robber3Ds_velocity': 0.001,
+    #     'robber3Ds_contact':False,
+    #     'robber3Ds_z_range': [0.1, 1.1],
         
-        'pillars_num': 0,
-        'pillars_keepout': 0.3,
-        'buttons_num': 0,
-    }
+    #     'pillars_num': 0,
+    #     'pillars_keepout': 0.3,
+    #     'buttons_num': 0,
+    # }
     
-    config1 = {
-            'robot_base': 'xmls/point.xml', # dt in xml, default 0.002s for point
+    config = {
+            # robot setting
+            'robot_base': 'xmls/swimmer.xml',  
+
+            # task setting
             'task': 'push',
             'push_object': 'ball',
-            'observation_flatten': True,  # Flatten observation into a vector
-            'observe_sensors': True,  # Observe all sensor data from simulator
-            # Sensor observations
-            # Specify which sensors to add to observation space
-            'sensors_obs': ['accelerometer', 'velocimeter', 'gyro', 'magnetometer'],
-            'sensors_hinge_joints': True,  # Observe named joint position / velocity sensors
-            'sensors_ball_joints': True,  # Observe named balljoint position / velocity sensors
-            'sensors_angle_components': True,  # Observe sin/cos theta instead of theta
-            'continue_goal': False, # Done when goal is reached 
-            
             'goal_size': 0.5,
-            'observe_goal_comp': True,
-            'observe_box_comp': True,
-            'lidar_max_dist': 2,
-            'lidar_num_bins': 16,
-            'lidar_num_bins3D': 1,
-            'render_lidar_radius': 0.25,
-            'constrain_indicator':False,
-            
-            
-            #num setting
+
+            # observation setting
+            'observe_goal_lidar': True,  # Observe the goal with a lidar sensor
+            'observe_box_comp': True,   # Observe the box with a lidar sensor
             'observe_hazards': True,  # Observe the vector from agent to hazards
+            # 'sensors_obs': ['accelerometer', 'velocimeter', 'gyro', 'magnetometer',
+            #                 'touch_point1', 'touch_point2', 'touch_point3', 'touch_point4'],
+
+            # constraint setting
             'constrain_hazards': True,  # Constrain robot from being in hazardous areas
-            'hazards_num': 2,
-            'hazards_size': 0.3,
+            'constrain_vases': True,
+            'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
+
+            # lidar setting
+            'lidar_num_bins': 16,
             
-            # Frameskip is the number of physics simulation steps per environment step
-            # Frameskip is sampled as a binomial distribution
-            # For deterministic steps, set frameskip_binom_p = 1.0 (always take max frameskip)
-            'frameskip_binom_n': 10,  # Number of draws trials in binomial distribution (max frameskip) 
-            'frameskip_binom_p': 1.0  # Probability of trial return (controls distribution)
+            # object setting
+            # 'hazards_num': 8,
+            'hazards_size': 0.3,
+
+            'vases_num': 8,
         }
 
 
-        
+    goal_task_list = ['Goal_Point_8Hazards',
+                 'Goal_Point_8Ghosts',
+                 'Goal_Swimmer_8Hazards',
+                 'Goal_Swimmer_8Ghosts',
+                 'Goal_Ant_8Hazards',
+                 'Goal_Ant_8Ghosts',
+                 'Goal_Walker_8Hazards',
+                 'Goal_Walker_8Ghosts',
+                 'Goal_Humanoid_8Hazards',
+                 'Goal_Humanoid_8Ghosts',
+                 'Goal_Hopper_8Hazards',
+                 'Goal_Hopper_8Ghosts',
+                 'Goal_Arm3_8Hazards',
+                 'Goal_Arm3_8Ghosts',
+                 'Goal_Arm6_8Hazards',
+                 'Goal_Arm6_8Ghosts',
+                 'Goal_Drone_8Hazards',
+                 'Goal_Drone_8Ghosts']
+    
+    push_task_list = ['Push_Point_8Hazards',
+                 'Push_Point_8Ghosts',
+                 'Push_Swimmer_8Hazards',
+                 'Push_Swimmer_8Ghosts',
+                 'Push_Ant_8Hazards',
+                 'Push_Ant_8Ghosts',
+                 'Push_Walker_8Hazards',
+                 'Push_Walker_8Ghosts',
+                 'Push_Humanoid_8Hazards',
+                 'Push_Humanoid_8Ghosts',
+                 'Push_Hopper_8Hazards',
+                 'Push_Hopper_8Ghosts',
+                 'Push_Arm3_8Hazards',
+                 'Push_Arm3_8Ghosts',
+                 'Push_Arm6_8Hazards',
+                 'Push_Arm6_8Ghosts',
+                 'Push_Drone_8Hazards',
+                 'Push_Drone_8Ghosts']
+    
+    chase_task_list = ['Chase_Point_8Hazards',
+                 'Chase_Point_8Ghosts',
+                 'Chase_Swimmer_8Hazards',
+                 'Chase_Swimmer_8Ghosts',
+                 'Chase_Ant_8Hazards',
+                 'Chase_Ant_8Ghosts',
+                 'Chase_Walker_8Hazards',
+                 'Chase_Walker_8Ghosts',
+                 'Chase_Humanoid_8Hazards',
+                 'Chase_Humanoid_8Ghosts',
+                 'Chase_Hopper_8Hazards',
+                 'Chase_Hopper_8Ghosts',
+                 'Chase_Arm3_8Hazards',
+                 'Chase_Arm3_8Ghosts',
+                 'Chase_Arm6_8Hazards',
+                 'Chase_Arm6_8Ghosts',
+                 'Chase_Drone_8Hazards',
+                 'Chase_Drone_8Ghosts']
+    
+    defense_task_list = ['Defense_Point_8Hazards',
+                 'Defense_Point_8Ghosts',
+                 'Defense_Swimmer_8Hazards',
+                 'Defense_Swimmer_8Ghosts',
+                 'Defense_Ant_8Hazards',
+                 'Defense_Ant_8Ghosts',
+                 'Defense_Walker_8Hazards',
+                 'Defense_Walker_8Ghosts',
+                 'Defense_Humanoid_8Hazards',
+                 'Defense_Humanoid_8Ghosts',
+                 'Defense_Hopper_8Hazards',
+                 'Defense_Hopper_8Ghosts',
+                 'Defense_Arm3_8Hazards',
+                 'Defense_Arm3_8Ghosts',
+                 'Defense_Arm6_8Hazards',
+                 'Defense_Arm6_8Ghosts',
+                 'Defense_Drone_8Hazards',
+                 'Defense_Drone_8Ghosts']
+
+    config = configuration("Defense_Drone_8Ghosts")
     env = Engine(config)
     obs = env.reset()
     done = False
@@ -150,11 +236,10 @@ def run_random(env_name):
         #     act[1] = 10.0
         # else:
         #     act[0] = -10.0
-
         #     act[1] = -10.0
 
-        if cnt != 0:
-            key = getkey()
+        # if cnt != 0:
+        #     key = getkey()
             # if key == "w":
             #     act[0] = 1.0
             # if key == "s":
@@ -218,6 +303,7 @@ def run_random(env_name):
         #     joint.append(obs['jointpos_joint_'+str(i + 1)])
         # print(joint)
         # print('reward', reward)
+        print(len(obs))
         ep_ret += reward
         a = info['cost']
         # print(info.get('cost', 0))

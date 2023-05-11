@@ -4,7 +4,7 @@
         <joint armature="10" damping="1" limited="true"/>
         <geom condim="6" rgba="1 0 0 1"/>
         <motor ctrllimited="true" ctrlrange="-1.0 1.0"/>
-        <site size="0.1" type="sphere" rgba="0 0 1 1"/>
+        <site size="0.1" type="sphere" rgba="0 0 1 0"/>
     </default>
     <option integrator="RK4" timestep="0.003">
         <!-- <flags solverstat="enable" energy="enable"/>-->

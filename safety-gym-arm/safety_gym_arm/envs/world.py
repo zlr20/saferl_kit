@@ -251,7 +251,7 @@ class World:
         for name, mocap in self.mocaps.items():
             # Mocap names are suffixed with 'mocap'
             assert mocap['name'] == name, f'Inconsistent {name} {object}'
-            if 'ghost' not in name:
+            if 'ghost' not in name and 'robber' not in name:
                 assert name.replace('mocap', 'obj') in self.objects, f'missing object for {name}'
             # Add the object to the world
             mocap = mocap.copy()  # don't modify original object
