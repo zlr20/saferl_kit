@@ -141,6 +141,9 @@ class C_Critic(nn.Module):
         self.c_net = mlp([obs_dim + act_dim] + list(hidden_sizes) + [1], activation, output_activation=nn.Softplus)
         self.device = device
         self.max_action = 1 # the default maximum action for safety gym 
+        self.o_init = 0
+        self.a_init = 0.5
+        self.Q_init = 0
     
     # def forward(self, obs, act):
     def forward(self, obs_act):
@@ -151,7 +154,17 @@ class C_Critic(nn.Module):
         #     return self.c_net(torch.cat((obs, act), dim=1))
         return torch.squeeze(self.c_net(obs_act), -1) # Critical to ensure v has right shape.
         
+    def store_init(self, o, a):
+        self.o_init = torch.as_tensor(o, dtype=torch.float32).to(self.device)
+        self.a_init = torch.as_tensor(a, dtype=torch.float32).to(self.device)
+        self.Q_init = self.forward(torch.cat((self.o_init, self.a_init)))
+        self.Q_init = self.Q_init.cpu().data.numpy()
+        self.Q_init = np.asarray(self.Q_init, dtype = np.double)
+
+    def get_Q_init(self):
+        return self.Q_init
     
+
     # Get the corrected action 
     def safety_correction(self, obs, act, prev_cost, delta=0., Niter = 40, eta = 0.05):
         obs = torch.as_tensor(obs, dtype=torch.float32).to(self.device)
@@ -159,6 +172,8 @@ class C_Critic(nn.Module):
         act.requires_grad_()
         self.c_net.zero_grad()
         pred = self.forward(torch.cat((obs,act)))
+        # pred_init = self.forward(torch.cat((self.o_init, self.a_init)))
+        # pred_init.backward(retain_graph=True)
         pred.backward(retain_graph=True)
 
         if pred.item() <= delta:
@@ -167,34 +182,28 @@ class C_Critic(nn.Module):
             # pre_pred = pred.item()
             P = np.identity(act.shape[0], dtype=np.double)
             act.retain_grad()
+            # self.a_init.retain_grad()
             q = act.detach().cpu().numpy()*0
             q = np.asarray(q, dtype=np.double)
+            q = q.reshape((act.shape[0], 1))
             G = act.grad.cpu().data.numpy()
-            G = G.reshape((1, 2))
+            G = G.reshape((1, act.shape[0]))
             G = np.asarray(G, dtype=np.double)
-            h = np.asarray(delta)# - pred.item())
+
+            # QD = pred_init.cpu().data.numpy()
+            # QD = np.asarray(QD, dtype=np.double)
+            # print(QD)
+            h = abs(np.asarray(delta) - self.Q_init)
+            
             h = h.reshape((1, 1))
             h = np.asarray(h, dtype=np.double)
             x = solve_qp(P, q, G, h, solver="daqp")
             x_tensor = torch.as_tensor(x, dtype=torch.float32).to(self.device)
             act = act + x_tensor
-            # pred1 = self.forward(torch.cat((obs,act1)))
+            #print(np.dot(G, x))
+            #print(act1, x, pred1)
+            #print(act2, x, pred2)
             
-            # for i in range(Niter):
-            #     # if max(np.abs(act.cpu().data.numpy().flatten())) > self.max_action:
-            #     #     break
-            #     act.retain_grad()
-            #     self.c_net.zero_grad()
-            #     pred = self.forward(torch.cat((obs,act)))
-            #     pred.backward(retain_graph=True)
-            #     # if pred.item() <= delta:
-            #     #     break
-            #     print(act)
-            #     print(act.grad.cpu().data.numpy().flatten())
-            #     print()
-            #     Z = np.max(np.abs(act.grad.cpu().data.numpy().flatten()))
-            #     act = act - eta * act.grad / (Z + 1e-8)
-            #     break
             return act.detach().cpu().numpy()
     
 
@@ -205,7 +214,7 @@ class MLPActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, 
                  hidden_sizes=(64,64), activation=nn.Tanh):
         super().__init__()
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
         obs_dim = observation_space.shape[0]
         act_dim = action_space.shape[0]

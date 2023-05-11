@@ -175,7 +175,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=50, gamma=0.99, pi_lr=3e-4,
         vf_lr=1e-3, vcf_lr=1e-3, train_v_iters=80, train_vc_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, target_cost = 1.5, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, 
-        backtrack_iters=100, model_save=False, cost_reduction=0):
+        backtrack_iters=100, model_save=False, cost_reduction=0, nu_init=0.1, nu_alpha=0.01):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -302,19 +302,6 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Set up experience buffer
     local_steps_per_epoch = int(steps_per_epoch / num_procs())
     buf = PdoBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
-
-
-    # def compute_kl_pi(data, cur_pi):
-    #     """
-    #     Return the sample average KL divergence between old and new policies
-    #     """
-    #     obs, act, logp_old = data['obs'], data['act'], data['logp']
-        
-    #     # Average KL Divergence  
-    #     pi, logp = cur_pi(obs, act)
-    #     average_kl = (logp_old - logp).mean()
-        
-    #     return average_kl
     
     def compute_kl_pi(data, cur_pi):
         """
@@ -420,22 +407,8 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         approx_g = Hx(Hinv_g)           # g
         # q        = np.clip(Hinv_g.T @ approx_g, 0.0, None)  # g.T / H @ g
         q        = Hinv_g.T @ approx_g
-        
-        # solve QP
-        # decide optimization cases (feas/infeas, recovery)
-        # Determine optim_case (switch condition for calculation,
-        # based on geometry of constrained optimization problem)
-        # if b.T @ b <= 1e-8 and c < 0:
-        #     Hinv_b, r, s, A, B = 0, 0, 0, 0, 0
-        # else:
-        #     # cost grad is nonzero: pdo update!
-        #     Hinv_b = cg(Hx, b)                # H^{-1} b
-        #     r = Hinv_b.T @ approx_g          # b^T H^{-1} g
-        #     s = Hinv_b.T @ Hx(Hinv_b)        # b^T H^{-1} b
-        #     A = q - r**2 / s            # should be always positive (Cauchy-Shwarz)
-        #     B = 2*target_kl - c**2 / s  # does safety boundary intersect trust region? (positive = yes)
             
-        t = g - nu * b
+        t = approx_g - nu * b
         Hinv_t = cg(Hx, t)
         s = Hinv_t.T @ Hx(Hinv_t) # (g-vb)^T H^{-1} (g-vg)
 
@@ -464,12 +437,13 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             if (kl.item() <= target_kl and
                  # if current policy is feasible (optim>1), must preserve pi loss
                 # surr_cost_new - surr_cost_old <= max(-c,0)):
+                pi_l_new.item() <= pi_l_old and
                 surr_cost_new - surr_cost_old <= max(-c,-cost_reduction)):
 
                 # update the policy parameter 
                 new_param = get_net_param_np_vec(ac.pi) - backtrack_coeff**j * x_direction
                 assign_net_param_from_flat(new_param, ac.pi)
-                nu = nu + 0.01 * c
+                nu = max(nu + nu_alpha * c, 0)
                 
                 loss_pi, pi_info = compute_loss_pi(data, ac.pi) # re-evaluate the pi_info for the new policy
                 surr_cost = compute_cost_pi(data, ac.pi) # re-evaluate the surr_cost for the new policy
@@ -514,7 +488,7 @@ def pdo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     ep_cost_ret, ep_cost = 0, 0
     cum_cost = 0
 
-    nu = 0.1
+    nu = nu_init
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
@@ -613,6 +587,8 @@ if __name__ == '__main__':
     parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
     parser.add_argument('--target_cost', type=float, default=0.) # the cost limit for the environment
     parser.add_argument('--target_kl', type=float, default=0.02) # the kl divergence limit for pdo
+    parser.add_argument('--nu_init', type=float, default=0.1) # the nu initialization for pdo
+    parser.add_argument('--nu_alpha', type=float, default=0.05) # the alpha for pdo
     parser.add_argument('--cost_reduction', type=float, default=0.) # the cost_reduction limit when current policy is infeasible
     parser.add_argument('--hid', type=int, default=64)
     parser.add_argument('--l', type=int, default=2)
@@ -621,7 +597,7 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', type=int, default=1)
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--exp_name', type=str, default='pdo')
+    parser.add_argument('--exp_name', type=str, default='pdo_minus')
     parser.add_argument('--model_save', action='store_true')
     args = parser.parse_args()
 
@@ -629,7 +605,9 @@ if __name__ == '__main__':
     
     exp_name = args.task + '_' + args.exp_name \
                 + '_' + 'kl' + str(args.target_kl) \
-                + '_' + 'target_cost' + str(args.target_cost) 
+                + '_' + 'target_cost' + str(args.target_cost)\
+                + '_' + 'nu_alpha' + str(args.nu_alpha) \
+                + '_' + 'nu_init' + str(args.nu_init)
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model
@@ -640,4 +618,4 @@ if __name__ == '__main__':
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs, target_cost=args.target_cost, 
-        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction)
+        model_save=model_save, target_kl=args.target_kl, cost_reduction=args.cost_reduction, nu_init=args.nu_init, nu_alpha=args.nu_alpha)

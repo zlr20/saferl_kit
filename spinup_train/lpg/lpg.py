@@ -16,7 +16,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 class LpgBuffer:
     """
@@ -453,7 +453,17 @@ def lpg(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
+            if(t == 0):
+                while True:
+                    try:
+                        o, ep_ret, ep_len = env.reset(), 0, 0
+                        break
+                    except:
+                        print('reset environment is wrong, try next reset')
             a, v, logp, mu, logstd, qc = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            if(t == 0):
+                ac.ccritic.store_init(o, a)
+                print(ac.ccritic.get_Q_init())
             
             # apply safe layer to get corrected action
             warmup_ratio = 1.0/3.0
