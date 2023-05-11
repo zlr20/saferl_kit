@@ -143,11 +143,11 @@ comparison_group/
 
 comparison_yifan/
 
-utils/plot_yifan_maxC.py
+*plot_yifan_maxC.py
 
-utils/plot_yifan.py
+*plot_yifan.py
 
-utils/plot_ds.py
+*plot_ds.py
 
 # video generation for the policy visualization 
 video/
