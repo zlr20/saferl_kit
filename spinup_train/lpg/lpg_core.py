@@ -191,7 +191,7 @@ class C_Critic(nn.Module):
             # x_tensor = torch.as_tensor(x, dtype=torch.float32).to(self.device)
             # actnew = act + x_tensor
             act_np = act.detach().cpu().numpy()
-            act_base = act_np
+            act_base = act_np * 0
             # pos_act = act_np
             # neg_act = act_np
             # while(max(np.abs(pos_act.flatten())) <= self.max_action or max(np.abs(neg_act.flatten())) <= self.max_action):
