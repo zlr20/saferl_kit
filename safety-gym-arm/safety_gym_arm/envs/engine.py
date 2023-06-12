@@ -2057,14 +2057,22 @@ class Engine(gym.Env, gym.utils.EzPickle):
             reward += (((-u*y + v*x)/radius)/(1 + np.abs(radius - self.circle_radius))) * self.reward_circle
         if self.task == 'chase':
             dist_robber = 1000
+            for h_pos in self.robbers_pos:
+                dist_robber = min(dist_robber, self.dist_xyz(h_pos))
             for h_pos in self.robber3Ds_pos:
                 dist_robber = min(dist_robber, self.dist_xyz(h_pos))
             if self.last_dist_robber != -1:
                 reward += (self.last_dist_robber - dist_robber) * self.reward_chase
             self.last_dist_robber = dist_robber
         if self.task == 'defense':
+            for h_pos in self.robbers_pos:
+                dist = np.sqrt(np.sum(np.square(h_pos[:2]))) / self.circle_radius - 1
+                if dist < 0:
+                    reward += dist * self.reward_defense
+                else:
+                    reward += 0.1 * self.reward_defense
             for h_pos in self.robber3Ds_pos:
-                dist = np.sqrt(np.sum(np.square(h_pos))) / self.circle_radius - 1
+                dist = np.sqrt(np.sum(np.square(h_pos[:2]))) / self.circle_radius - 1
                 if dist < 0:
                     reward += dist * self.reward_defense
                 else:

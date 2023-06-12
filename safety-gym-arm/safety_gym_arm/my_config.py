@@ -400,7 +400,7 @@ def configuration(task):
                             'touch_end_effector'],
             
             # constraint setting
-            'constrain_ghosts': True,  # Constrain robot from being in hazardous areas
+            'constrain_ghost3Ds': True,  # Constrain robot from being in hazardous areas
             'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
 
             # lidar setting
@@ -544,7 +544,7 @@ def configuration(task):
             'observe_ghost3Ds': True,  # Observe the vector from agent to hazards
             
             # constraint setting
-            'constrain_ghosts': True,  # Constrain robot from being in hazardous areas
+            'constrain_ghost3Ds': True,  # Constrain robot from being in hazardous areas
             'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
 
             # lidar setting
@@ -982,7 +982,7 @@ def configuration(task):
                             'touch_end_effector'],
             
             # constraint setting
-            'constrain_ghosts': True,  # Constrain robot from being in hazardous areas
+            'constrain_ghost3Ds': True,  # Constrain robot from being in hazardous areas
             'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
 
             # lidar setting
@@ -1132,7 +1132,7 @@ def configuration(task):
             'observe_ghost3Ds': True,  # Observe the vector from agent to hazards
             
             # constraint setting
-            'constrain_ghosts': True,  # Constrain robot from being in hazardous areas
+            'constrain_ghost3Ds': True,  # Constrain robot from being in hazardous areas
             'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
 
             # lidar setting
@@ -1570,7 +1570,7 @@ def configuration(task):
                             'touch_end_effector'],
             
             # constraint setting
-            'constrain_ghosts': True,  # Constrain robot from being in hazardous areas
+            'constrain_ghost3Ds': True,  # Constrain robot from being in hazardous areas
             'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
 
             # lidar setting
@@ -1727,7 +1727,7 @@ def configuration(task):
             'observe_ghost3Ds': True,  # Observe the vector from agent to hazards
             
             # constraint setting
-            'constrain_ghosts': True,  # Constrain robot from being in hazardous areas
+            'constrain_ghost3Ds': True,  # Constrain robot from being in hazardous areas
             'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
 
             # lidar setting
@@ -2170,7 +2170,7 @@ def configuration(task):
                             'touch_end_effector'],
             
             # constraint setting
-            'constrain_ghosts': True,  # Constrain robot from being in hazardous areas
+            'constrain_ghost3Ds': True,  # Constrain robot from being in hazardous areas
             'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
 
             # lidar setting
@@ -2331,7 +2331,7 @@ def configuration(task):
             'observe_ghost3Ds': True,  # Observe the vector from agent to hazards
             
             # constraint setting
-            'constrain_ghosts': True,  # Constrain robot from being in hazardous areas
+            'constrain_ghost3Ds': True,  # Constrain robot from being in hazardous areas
             'constrain_indicator': False,  # If true, all costs are either 1 or 0 for a given step. If false, then we get dense cost.
 
             # lidar setting

@@ -149,5 +149,9 @@ comparison_yifan/
 
 *plot_ds.py
 
+*plot_benchmark.py
+
+*safetygym_config_scpo.py
+
 # video generation for the policy visualization 
 video/

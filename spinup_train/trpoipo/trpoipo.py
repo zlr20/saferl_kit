@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class TRPOIPOBuffer:
@@ -165,7 +165,7 @@ def auto_hession_x(objective, net, x):
 def trpoipo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
         steps_per_epoch=4000, epochs=50, gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
         vf_lr=1e-3, train_pi_iters=80, train_v_iters=80, lam=0.97, max_ep_len=1000,
-        target_kl=0.01, target_cost = 1.5, t_ipo = 0.01, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100, model_save=False):
+        target_kl=0.01, target_cost = 1.5, t_ipo = 0.01, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100, model_save=False, penalty=0.01):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -352,7 +352,11 @@ def trpoipo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             J_C_pi += ( ratio * torch.sum(cost[j:k]))
         J_C_pi /= n_epi
         J_C_pi_tild = J_C_pi - torch.as_tensor(target_cost, dtype=torch.float32).to(device)
-        phi = torch.log(-torch.clamp(J_C_pi_tild, max=-1e-8)) / t_ipo
+        # when constraint is violated, apply large penalty since log cannot be evaluated
+        if J_C_pi_tild.item() < 0:
+            phi = torch.log(-J_C_pi_tild) / t_ipo
+        else:
+            phi = -J_C_pi_tild * penalty
         loss_pi_ipo = loss_pi - phi
         
         # Useful extra info
@@ -560,11 +564,13 @@ if __name__ == '__main__':
     parser.add_argument('--target_kl', type=float, default=0.02)
     parser.add_argument('--target_cost', type=float, default=0.)
     parser.add_argument('--t_ipo', type=float, default=0.01)
+    parser.add_argument('--penalty', type=float, default=0.0005)
     args = parser.parse_args()
 
     mpi_fork(args.cpu)  # run parallel code with mpi
     
-    exp_name = args.task + '_' + args.exp_name + '_' + 't' + str(args.t_ipo) + '-' + 'epochs' + str(args.epochs)
+    # exp_name = args.task + '_' + args.exp_name + '_' + 't' + str(args.t_ipo) + '_' + str(args.penalty)
+    exp_name = args.task + '_' + args.exp_name
     logger_kwargs = setup_logger_kwargs(exp_name, args.seed)
 
     # whether to save model
@@ -575,4 +581,4 @@ if __name__ == '__main__':
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), gamma=args.gamma, 
         seed=args.seed, steps_per_epoch=args.steps, epochs=args.epochs,
         logger_kwargs=logger_kwargs, model_save=model_save, target_kl=args.target_kl, target_cost=args.target_cost,
-        t_ipo=args.t_ipo, max_ep_len=args.max_ep_len)
+        t_ipo=args.t_ipo, max_ep_len=args.max_ep_len, penalty=args.penalty)

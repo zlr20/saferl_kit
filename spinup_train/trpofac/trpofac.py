@@ -15,7 +15,7 @@ from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
 from utils.safetygym_config import configuration
 import os.path as osp
 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
 class TRPOFACBuffer:
@@ -402,10 +402,11 @@ def trpofac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
         # update the policy such that the KL diveragence constraints are satisfied and loss is decreasing
         for j in range(backtrack_iters):
-            try:
-                kl, pi_l_new = set_and_eval(backtrack_coeff**j)
-            except:
-                import ipdb; ipdb.set_trace()
+            # try:
+            #     kl, pi_l_new = set_and_eval(backtrack_coeff**j)
+            # except:
+            #     import ipdb; ipdb.set_trace()
+            kl, pi_l_new = set_and_eval(backtrack_coeff**j) 
             
             if (kl.item() <= target_kl and pi_l_new.item() <= pi_l_old):
                 print(colorize(f'Accepting new params at step %d of line search.'%j, 'green', bold=False))

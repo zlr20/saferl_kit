@@ -165,10 +165,13 @@ class C_Critic(nn.Module):
     def safety_correction(self, obs, act, prev_cost, delta=0., Niter = 40, eta = 0.05):
         obs = torch.as_tensor(obs, dtype=torch.float32).to(self.device)
         act = torch.as_tensor(act, dtype=torch.float32).to(self.device)
-        act.requires_grad_()
-        self.c_net.zero_grad()
         pred = self.forward(torch.cat((obs,act)))
-        pred.backward(retain_graph=True)
+        
+        act_0 = torch.zeros_like(act)
+        act_0.requires_grad_()
+        self.c_net.zero_grad()
+        pred_0 = self.forward(torch.cat((obs,act_0)))
+        pred_0.backward(retain_graph=True)
 
         if pred.item() <= delta:
             return act.detach().cpu().numpy()
@@ -179,7 +182,7 @@ class C_Critic(nn.Module):
             # q = act.detach().cpu().numpy()*0
             # q = np.asarray(q, dtype=np.double)
             # q = q.reshape((act.shape[0], 1))
-            G = act.grad.cpu().data.numpy()
+            G = act_0.grad.cpu().data.numpy()
             # G = G.reshape((1, act.shape[0]))
             G = np.asarray(G, dtype=np.double)
             # h = abs(np.asarray(delta) - self.Q_init)

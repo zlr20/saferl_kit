@@ -202,7 +202,7 @@ def run_random(env_name):
                  'Defense_Drone_8Hazards',
                  'Defense_Drone_8Ghosts']
 
-    config = configuration("Defense_Drone_8Ghosts")
+    config = configuration("Chase_Hopper_8Hazards")
     env = Engine(config)
     obs = env.reset()
     done = False
