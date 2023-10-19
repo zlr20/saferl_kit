@@ -9,8 +9,8 @@ from torch.optim import Adam
 import gym
 import time
 import copy
-from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
-from utils.safetygym_config import configuration
+from safe_rl_envs.envs.engine import Engine as  safe_rl_envs_Engine
+from utils.safe_rl_env_config import configuration
 import os.path as osp
 import cv2
 
@@ -20,7 +20,7 @@ device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
 
 
 def create_env(args):
-    env = safety_gym_arm_Engine(configuration(args.task))
+    env = safe_rl_envs_Engine(configuration(args.task))
     return env
 
 
