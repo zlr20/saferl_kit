@@ -11,6 +11,7 @@ Supported algorithms in the GUARD Safe RL library include:
 
 **Unconstrained**
 - [Trust Region Policy Optimization (TRPO)](https://arxiv.org/abs/1502.05477)
+- [Absolute Policy Optimization (APO)](todo) (not in paper)
 
 **End-to-end**
 - [Constrained Policy Optimization (CPO)](https://arxiv.org/abs/1705.10528)
