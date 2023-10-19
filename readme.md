@@ -11,9 +11,9 @@ Supported algorithms in the GUARD Safe RL library include:
 
 **Unconstrained**
 - [Absolute Policy Optimization (APO)](todo) (not in paper)
-- [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/2308.05585)
+- [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/2308.05585) (not in paper)
 - [Trust Region Policy Optimization (TRPO)](https://arxiv.org/abs/1502.05477)
-- [Asynchronous Actor-critic (A2C)](https://arxiv.org/abs/1602.01783?context=cs.LG)
+- [Asynchronous Actor-critic (A2C)](https://arxiv.org/abs/1602.01783?context=cs.LG) (not in paper)
 
 
 **End-to-end**
