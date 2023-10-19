@@ -1,4 +1,5 @@
 import os
+import matplotlib.pyplot as plt
 os.sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '..'))
 os.environ['MESA_GL_VERSION_OVERRIDE'] = '3.3'
 os.environ['MESA_GLSL_VERSION_OVERRIDE'] = '330'
@@ -7,20 +8,19 @@ import torch
 from torch.optim import Adam
 import gym
 import time
- 
-from  safe_rl_envs.envs.engine import Engine as  safe_rl_envs_Engine
-from utils.safe_rl_env_config import configuration
+import copy
+from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
+from utils.safetygym_config import configuration
 import os.path as osp
 import cv2
-import matplotlib.pyplot as plt
+
 from mujoco_py import GlfwContext
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
 
 
 def create_env(args):
-    env =  safe_rl_envs_Engine(configuration(args.task))
+    env = safety_gym_arm_Engine(configuration(args.task))
     return env
 
 
@@ -41,6 +41,9 @@ def replay(env_fn, model_path=None, video_name=None, max_epoch=1):
     ep_ret = 0
     time_step = 0
     epoch = 0
+    M = 0. # initialize the current maximum cost
+    o_aug = np.append(o, M) # augmented observation = observation + M 
+    first_step = True
     
     video_array = []
     
@@ -58,18 +61,33 @@ def replay(env_fn, model_path=None, video_name=None, max_epoch=1):
                 break
             ep_ret = 0
             o = env.reset()
+            M = 0. # initialize the current maximum cost 
+            # o_aug = o.append(M) # augmented observation = observation + M 
+            o_bug = np.append(o, M) # augmented observation = observation + M 
+            first_step = True
         
         try:
-            a, v, logp, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, vc, logp, _, _ = ac.step(torch.as_tensor(o_aug, dtype=torch.float32))
         except:
             print('please choose the correct environment, the observation space doesn''t match')
             raise NotImplementedError
         
 
-        next_o, r, d, _ = env.step(a)
+        next_o, r, d, info = env.step(a)
+        
+        if first_step:
+            # the first step of each episode 
+            cost_increase = info['cost']
+            M_next = info['cost']
+            first_step = False
+        else:
+            # the second and forward step of each episode
+            cost_increase = max(info['cost'] - M, 0)
+            M_next = M + cost_increase 
         
         # Update obs (critical!)
-        o = next_o
+        # o = next_o
+        o_aug = np.append(next_o, M_next)
 
         img_array = env.render(mode='rgb_array')
         video_array.append(img_array)
@@ -96,7 +114,7 @@ def replay(env_fn, model_path=None, video_name=None, max_epoch=1):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()    
-    parser.add_argument('--task', type=str, default='Goal_Point')
+    parser.add_argument('--task', type=str, default='Goal_Point_8Hazards')
     parser.add_argument('--max_epoch', type=int, default=1)  # the maximum number of epochs
     parser.add_argument('--model_path', type=str, default=None)
     parser.add_argument('--video_name', type=str, default=None)

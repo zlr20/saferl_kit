@@ -7,9 +7,9 @@ import torch
 from torch.optim import Adam
 import gym
 import time
-from safety_gym.envs.engine import Engine as safety_gym_Engine
-from safety_gym_arm.envs.engine import Engine as safety_gym_arm_Engine
-from utils.safetygym_config import configuration
+ 
+from  safe_rl_envs.envs.engine import Engine as  safe_rl_envs_Engine
+from utils.safe_rl_env_config import configuration
 import os.path as osp
 import cv2
 import matplotlib.pyplot as plt
@@ -20,10 +20,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def create_env(args):
-    if 'My' not in args.task:
-        env = safety_gym_arm_Engine(configuration(args.task, args))
-    else:
-        env = safety_gym_Engine(configuration(args.task, args))
+    env =  safe_rl_envs_Engine(configuration(args.task))
     return env
 
 
@@ -63,7 +60,7 @@ def replay(env_fn, model_path=None, video_name=None, max_epoch=1):
             o = env.reset()
         
         try:
-            a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, logp, _, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
         except:
             print('please choose the correct environment, the observation space doesn''t match')
             raise NotImplementedError
@@ -99,8 +96,7 @@ def replay(env_fn, model_path=None, video_name=None, max_epoch=1):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()    
-    parser.add_argument('--task', type=str, default='Mygoal4')
-    parser.add_argument('--hazards_size', type=float, default=0.30)  # the default hazard size of safety gym 
+    parser.add_argument('--task', type=str, default='Goal_Point')
     parser.add_argument('--max_epoch', type=int, default=1)  # the maximum number of epochs
     parser.add_argument('--model_path', type=str, default=None)
     parser.add_argument('--video_name', type=str, default=None)

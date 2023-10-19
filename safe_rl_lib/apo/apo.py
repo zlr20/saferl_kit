@@ -161,8 +161,8 @@ def auto_hession_x(objective, net, x):
     return auto_grad(torch.dot(jacob, x), net, to_numpy=True)
 
 def apo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
-        steps_per_epoch=4000, epochs=50, gamma=0.99,
-        ac_lr=1e-3, train_v_iters=80, lam=0.97, max_ep_len=1000,
+        steps_per_epoch=4000, epochs=50, gamma=0.99, 
+        vf_lr=1e-3, train_v_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100, model_save=False, 
         k=10., omega_1=0.01, omega_2=0.01, atari=None, detailed=False):
     """
@@ -232,7 +232,7 @@ def apo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         gamma (float): Discount factor. (Always between 0 and 1.)
 
-        ac_lr (float): Learning rate for Actor Critic optimizer.
+        vf_lr (float): Learning rate for value function optimizer.
 
         train_v_iters (int): Number of gradient descent steps to take on 
             value function per epoch.
@@ -333,9 +333,6 @@ def apo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     def compute_loss_pi_Chebyshev(data, cur_pi):
         """
         The reward objective APO (APO policy loss)
-        
-        Args:
-            k(float): the probability parameter 
         """
         obs, act, disc_adv, adv, logp_old, val = data['obs'], data['act'], data['disc_adv'], data['adv'], data['logp'], data['val']
         pi, logp = cur_pi(obs, act)
@@ -378,7 +375,7 @@ def apo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
 
     # Set up optimizers for policy and value function
-    ac_optimizer = Adam(ac.v.parameters(), lr=ac_lr)
+    vf_optimizer = Adam(ac.v.parameters(), lr=vf_lr)
 
     # Set up model saving
     if model_save:
@@ -432,11 +429,11 @@ def apo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # Value function learning
         for i in range(train_v_iters):
-            ac_optimizer.zero_grad()
+            vf_optimizer.zero_grad()
             loss_v = compute_loss_v(data)
             loss_v.backward()
             mpi_avg_grads(ac.v)    # average grads across MPI processes
-            ac_optimizer.step()
+            vf_optimizer.step()
 
         # Log changes from update        
         kl, ent = pi_info['kl'], pi_info_old['ent']

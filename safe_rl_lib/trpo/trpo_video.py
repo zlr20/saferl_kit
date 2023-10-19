@@ -96,7 +96,7 @@ def replay(env_fn, model_path=None, video_name=None, max_epoch=1):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()    
-    parser.add_argument('--task', type=str, default='Goal_Point_8Hazards')
+    parser.add_argument('--task', type=str, default='Goal_Point')
     parser.add_argument('--max_epoch', type=int, default=1)  # the maximum number of epochs
     parser.add_argument('--model_path', type=str, default=None)
     parser.add_argument('--video_name', type=str, default=None)

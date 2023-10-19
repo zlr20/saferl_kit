@@ -157,8 +157,8 @@ def auto_hession_x(objective, net, x):
     return auto_grad(torch.dot(jacob, x), net, to_numpy=True)
 
 def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
-        steps_per_epoch=4000, epochs=50, gamma=0.99, 
-        ac_lr=1e-3, train_v_iters=80, lam=0.97, max_ep_len=1000,
+        steps_per_epoch=4000, epochs=50, gamma=0.99,
+        vf_lr=1e-3, train_v_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100, model_save=False, atari=None):
     """
     Trust Region Policy Optimization
@@ -227,7 +227,7 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         gamma (float): Discount factor. (Always between 0 and 1.)
 
-        ac_lr (float): Learning rate for Actor Critic optimizer.
+        vf_lr (float): Learning rate for value function optimizer.
 
         train_v_iters (int): Number of gradient descent steps to take on 
             value function per epoch.
@@ -319,18 +319,13 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     def compute_loss_pi(data, cur_pi):
         """
         The reward objective TRPO (TRPO policy loss)
-        
-        Args:
-            k(float): the probability parameter 
         """
         obs, act, disc_adv, logp_old = data['obs'], data['act'], data['disc_adv'], data['logp']
+        
+        # Policy loss 
         pi, logp = cur_pi(obs, act)
         ratio = torch.exp(logp - logp_old)
-        
-        mean_surr = (ratio*disc_adv).mean()
-        
-        # loss 
-        loss_pi = -mean_surr
+        loss_pi = -(ratio*disc_adv).mean()
         
         # Useful extra info
         approx_kl = (logp_old - logp).mean().item()
@@ -346,7 +341,7 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         
 
     # Set up optimizers for policy and value function
-    ac_optimizer = Adam(ac.v.parameters(), lr=ac_lr)
+    vf_optimizer = Adam(ac.v.parameters(), lr=vf_lr)
 
     # Set up model saving
     if model_save:
@@ -400,11 +395,11 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # Value function learning
         for i in range(train_v_iters):
-            ac_optimizer.zero_grad()
+            vf_optimizer.zero_grad()
             loss_v = compute_loss_v(data)
             loss_v.backward()
             mpi_avg_grads(ac.v)    # average grads across MPI processes
-            ac_optimizer.step()
+            vf_optimizer.step()
 
         # Log changes from update        
         kl, ent = pi_info['kl'], pi_info_old['ent']
