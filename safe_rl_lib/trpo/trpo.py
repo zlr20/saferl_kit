@@ -161,6 +161,7 @@ def trpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         ac_lr=1e-3, train_v_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100, model_save=False, atari=None):
     """
+    Trust Region Policy Optimization
  
     Args:
         env_fn : A function which creates a copy of the environment.
