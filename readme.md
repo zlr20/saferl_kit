@@ -10,8 +10,11 @@ GUARD is composed of two main components: GUARD Safe RL library and GUARD testin
 Supported algorithms in the GUARD Safe RL library include:
 
 **Unconstrained**
-- [Trust Region Policy Optimization (TRPO)](https://arxiv.org/abs/1502.05477)
 - [Absolute Policy Optimization (APO)](todo) (not in paper)
+- [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/2308.05585)
+- [Trust Region Policy Optimization (TRPO)](https://arxiv.org/abs/1502.05477)
+- [Asynchronous Actor-critic (A2C)](https://arxiv.org/abs/1602.01783?context=cs.LG)
+
 
 **End-to-end**
 - [Constrained Policy Optimization (CPO)](https://arxiv.org/abs/1705.10528)
