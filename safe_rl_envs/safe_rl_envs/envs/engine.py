@@ -1927,7 +1927,8 @@ class Engine(gym.Env, gym.utils.EzPickle):
         ''' Tick the buttons resampling timer '''
         self.buttons_timer = max(0, self.buttons_timer - 1)
 
-    def step(self, action):
+
+    def step(self, action, simulate_in_adamba=False):
         ''' Take a step and return observation, reward, done, and info '''
         action = np.array(action, copy=False)  # Cast to ndarray
         assert not self.done, 'Environment must be reset before stepping'
@@ -1980,39 +1981,45 @@ class Engine(gym.Env, gym.utils.EzPickle):
         else:
             self.sim.forward()  # Needed to get sensor readings correct!
 
-            # Reward processing
-            reward = self.reward()
+            if simulate_in_adamba:
+                # avoid step in simulation changing self.last_goal_dis etc
+                reward = None
+                pass
+            else:
+                # Reward processing
+                reward = self.reward()
 
-            # Constraint violations
-            info.update(self.cost())
+                # Constraint violations
+                info.update(self.cost())
 
-            # Button timer (used to delay button resampling)
-            self.buttons_timer_tick()
+                # Button timer (used to delay button resampling)
+                self.buttons_timer_tick()
 
-            # Goal processing
-            if self.goal_met():
-                info['goal_met'] = True
-                reward += self.reward_goal
-                if self.continue_goal:
-                    # Update the internal layout so we can correctly resample (given objects have moved)
-                    self.update_layout()
-                    # Reset the button timer (only used for task='button' environments)
-                    self.buttons_timer = self.buttons_resampling_delay
-                    # Try to build a new goal, end if we fail
-                    if self.terminate_resample_failure:
-                        try:
+                # Goal processing
+                if self.goal_met():
+                    info['goal_met'] = True
+                    reward += self.reward_goal
+                    if self.continue_goal:
+                        # Update the internal layout so we can correctly resample (given objects have moved)
+                        self.update_layout()
+                        # Reset the button timer (only used for task='button' environments)
+                        self.buttons_timer = self.buttons_resampling_delay
+                        # Try to build a new goal, end if we fail
+                        if self.terminate_resample_failure:
+                            try:
+                                self.build_goal()
+                            except ResamplingError as e:
+                                # Normal end of episode
+                                self.done = True
+                        else:
+                            # Try to make a goal, which could raise a ResamplingError exception
                             self.build_goal()
-                        except ResamplingError as e:
-                            # Normal end of episode
-                            self.done = True
                     else:
-                        # Try to make a goal, which could raise a ResamplingError exception
-                        self.build_goal()
-                else:
-                    self.done = True
+                        self.done = True
 
         # Timeout
-        self.steps += 1
+        if not simulate_in_adamba:
+            self.steps += 1
         if self.steps >= self.num_steps:
             self.done = True  # Maximum number of steps in an episode reached
 
@@ -2313,3 +2320,38 @@ class Engine(gym.Env, gym.utils.EzPickle):
             self.viewer._markers[:] = []
             self.viewer._overlay.clear()
             return data[::-1, :, :]
+
+    def adaptive_safety_index(self, k=2, sigma=0.04, n=2):
+        '''
+        synthesis the safety index that ensures the valid solution 
+        '''
+        if self.constrain_hazards:
+            vel_vec = self.data.get_body_xvelp('robot')[0:2]
+            robot_pos = self.world.robot_pos()
+            # h_pos = self.hazards_pos
+            robot_to_hazard_direction = (self.hazards_pos - robot_pos)[:,0:2]
+            h_dist = np.linalg.norm(robot_to_hazard_direction, axis=1)
+            dotd = -np.dot(robot_to_hazard_direction, vel_vec) / h_dist
+            # d = h_dist
+            phi_list = sigma + self.hazards_size**n - h_dist**n - k*dotd
+            phi = np.max(phi_list)   
+            return phi 
+            
+        elif self.constrain_pillars:
+
+            vel_vec = self.data.get_body_xvelp('robot')[0:2]
+            robot_pos = self.world.robot_pos()
+            # h_pos = self.hazards_pos
+            robot_to_pillar_direction = (self.pillars_pos - robot_pos)[:,0:2]
+            
+            h_dist = np.linalg.norm(robot_to_pillar_direction, axis=1)
+            dotd = -np.dot(robot_to_pillar_direction, vel_vec) / h_dist
+            # d = h_dist
+            # phi_list = sigma + (self.pillars_size + self.robot_keepout -0.3)**n - h_dist**n - k*dotd
+            phi_list = sigma + (self.pillars_size+0.1)**n - h_dist**n - k*dotd
+            phi = np.max(phi_list)
+            
+            return phi 
+
+        else:
+            raise NotImplementedError  

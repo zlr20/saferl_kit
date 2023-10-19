@@ -97,7 +97,6 @@ class TRPOBuffer:
                     act=torch.FloatTensor(self.act_buf).to(device), 
                     ret=torch.FloatTensor(self.ret_buf).to(device),
                     disc_adv=torch.FloatTensor(self.discounted_adv_buf).to(device), 
-                    adv=torch.FloatTensor(self.adv_buf).to(device), 
                     logp=torch.FloatTensor(self.logp_buf).to(device),
                     mu=torch.FloatTensor(self.mu_buf).to(device),
                     logstd=torch.FloatTensor(self.logstd_buf).to(device),

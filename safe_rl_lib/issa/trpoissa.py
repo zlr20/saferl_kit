@@ -17,9 +17,9 @@ import os.path as osp
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 EPS = 1e-8
 
-class TRPOBuffer:
+class ISSABuffer:
     """
-    A buffer for storing trajectories experienced by a PPO agent interacting
+    A buffer for storing trajectories experienced by a ISSA agent interacting
     with the environment, and using Generalized Advantage Estimation (GAE-Lambda)
     for calculating the advantages of state-action pairs.
     """
@@ -157,7 +157,7 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         target_kl=0.01, logger_kwargs=dict(), save_freq=10, backtrack_coeff=0.8, backtrack_iters=100, model_save=False,
         adaptive_k=1, adaptive_n=1, adaptive_sigma=0.04):
     """
-    Trust Region Policy Optimization (by clipping), 
+    Implicit Safe Set Algorithm (by using TRPO) 
  
     Args:
         env_fn : A function which creates a copy of the environment.
@@ -247,7 +247,12 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         backtrack_iters (int): Number of line search steps.
         
         model_save (bool): If saving model.
-
+        
+        adaptive_k (int): hyperparameter of safety index.
+        
+        adaptive_n (int): hyperparameter of safety index.
+        
+        adaptive_sigma (float): hyperparameter of safety index.
     """
 
     # Special function to avoid certain slowdowns from PyTorch + MPI combo.
@@ -278,7 +283,7 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Set up experience buffer
     local_steps_per_epoch = int(steps_per_epoch / num_procs())
-    buf = TRPOBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
+    buf = ISSABuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
     local_steps_per_epoch_eval = 10000
 
     def compute_kl_pi(data, cur_pi):
@@ -300,7 +305,7 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     def compute_loss_pi(data, cur_pi):
         """
-        The reward objective for TRPO (TRPO policy loss)
+        The reward objective for ISSA (ISSA policy loss)
         """
         obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
         
@@ -341,18 +346,6 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             s_new,_,_,info = env.step(action, simulate_in_adamba=True)
             if 'cost_exception' not in info:    
                 safe_index_future = env.adaptive_safety_index(k=adaptive_k, sigma=adaptive_sigma, n=adaptive_n)
-                # dphi = safe_index_future - safe_index_now
-
-                # if trigger_by_pre_execute:
-                #     if safe_index_future < pre_execute_coef:
-                #         flag = 0  # safe
-                #     else:
-                #         flag = 1  # unsafe
-                # else:
-                #     if dphi <= threshold * dt_adamba: #here dt_adamba = dt_env
-                #         flag = 0  # safe
-                #     else:
-                #         flag = 1  # unsafe
                 if safe_index_future < max(0, safe_index_now):
                     flag = 0  # safe
                 else:
@@ -360,7 +353,6 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             else:
                 flag = -1
         except: 
-            # print("##exception in chk unsafe")
             flag = -1  # expection
             
         if flag == -1:
@@ -388,7 +380,6 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Correction function of ISSA using AdamBA
     def AdamBA_SC(s, u, env, threshold=0, dt_ratio=1.0, ctrlrange=10.0, margin=0.4, adaptive_k=3, adaptive_n=1, adaptive_sigma=0.04, trigger_by_pre_execute=False, pre_execute_coef=0.0, vec_num=None, max_trial_num =1):
-        # start_time = time.time()
         infSet = []
 
         u = np.clip(u, -ctrlrange, ctrlrange)
@@ -407,15 +398,6 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # generate direction
         NP_vec_dir = []
         NP_vec = []
-    
-        #sigma_vec = [[1, 0], [0, 1]]
-        # vec_num = 10 if action_space_num==2 else 
-        # if action_space_num ==2:
-        #     vec_num = 10 if vec_num == None else vec_num
-        # elif action_space_num == 12:
-        #     vec_num = 20 if vec_num == None else vec_num
-        # else:
-        #     raise NotImplementedError
 
         loc = 0 
         scale = 0.1
@@ -426,10 +408,8 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 vec_set = []
                 vec_dir_set = []
                 for m in range(0, vec_num):
-                    # vec_dir = np.random.multivariate_normal(mean=[0, 0], cov=sigma_vec)
                     theta_m = m * (2 * np.pi / vec_num)
                     vec_dir = np.array([np.sin(theta_m), np.cos(theta_m)]) / 2
-                    #vec_dir = vec_dir / np.linalg.norm(vec_dir)
                     vec_dir_set.append(vec_dir)
                     vec = NP[t]
                     vec_set.append(vec)
@@ -438,17 +418,12 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             else:
                 vec_dir_set = np.random.normal(loc=loc, scale=scale, size=[vec_num, action_space_num])
                 vec_set = [NP[t]] * vec_num
-                #import ipdb; ipdb.set_trace()
                 NP_vec_dir.append(vec_dir_set)
                 NP_vec.append(vec_set)
-            
-
-        
 
         bound = 0.0001
 
         # record how many boundary points have been found
-        # collected_num = 0
         valid = 0
         cnt = 0
         out = 0
@@ -462,17 +437,11 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 at_least_1 = False
                 trial_num += 1
                 NP_vec_tmp = copy.deepcopy(NP_vec[n])
-                #print(NP_vec)
 
                 if trial_num ==1:
                     NP_vec_dir_tmp = NP_vec_dir[n]
                 else:
                     NP_vec_dir_tmp = np.random.normal(loc=loc, scale=scale, size=[vec_num, action_space_num])
-                    #print(NP_vec_dir_tmp)
-                # print("NP_vec:\n",NP_vec)
-                # print("NP_vec_dir_tmp:\n",NP_vec_dir_tmp)
-                
-
 
                 for v in range(0, vec_num):
                     NP_vec_tmp_i = NP_vec_tmp[v]
@@ -481,24 +450,20 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
                     eta = bound
                     decrease_flag = 0
-                    # print(eta)
                     
                     opt_solution = []
                     while True: 
                         
-                        # chk_start_time = time.time()
                         flag, env = chk_unsafe(s, NP_vec_tmp_i, dt_ratio=dt_ratio, dt_adamba=dt_adamba, env=env,
                                             threshold=threshold, margin=margin, adaptive_k=adaptive_k, adaptive_n=adaptive_n, adaptive_sigma=adaptive_sigma,
                                             trigger_by_pre_execute=trigger_by_pre_execute, pre_execute_coef=pre_execute_coef)
 
                         # safety gym env itself has clip operation inside
                         if outofbound(limits, NP_vec_tmp_i):
-                            # print("\nout\n")
-                            # collected_num = collected_num - 1  # not found, discard the recorded number
                             break
 
                         if flag == -1:
-                            #simulation expection
+                            # simulation expection
                             break
                         
                         if eta <= bound and decrease_flag == 1:
@@ -533,16 +498,12 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     NP_vec_tmp[v] = NP_vec_tmp_i
 
             NP_vec_tmp_new = []
-            # print("NP_vec_tmp: ",NP_vec_tmp)
-            # exit(0)
             for vnum in range(0, len(NP_vec_tmp)):
                 cnt += 1
                 if outofbound(limits, NP_vec_tmp[vnum]):
-                    # print("out")
                     out += 1
                     continue
                 if NP_vec_tmp[vnum][0] == u[0] and NP_vec_tmp[vnum][1] == u[1]:
-                    # print("yes")
                     yes += 1
                     continue
 
@@ -579,7 +540,7 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         v_l_old = compute_loss_v(data).item()
 
 
-        # TRPO policy update core impelmentation 
+        # ISSA policy update core impelmentation 
         loss_pi, pi_info = compute_loss_pi(data, ac.pi)
         g = auto_grad(loss_pi, ac.pi) # get the flatten gradient evaluted at pi old 
         kl_div = compute_kl_pi(data, ac.pi)
@@ -637,7 +598,6 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Prepare for interaction with environment
     start_time = time.time()
-    # o, ep_ret, ep_len = env.reset(), 0, 0
     while True:
         try:
             o, ep_ret, ep_len = env.reset(), 0, 0
@@ -655,7 +615,6 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         EP_start_time=time.time()
         for t in range(local_steps_per_epoch):
             if t % 1000 == 0:
-                print("train stage", t,AdamBA_cnt)
                 AdamBA_cnt = 0
             a, v, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
                     
@@ -683,7 +642,6 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
             # save and log
             buf.store(o, a, r, v, logp, mu, logstd)
-            # logger.store(VVals=v)
             
             # Update obs (critical!)
             o = next_o
@@ -703,9 +661,7 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 buf.finish_path(v)
                 if terminal:
                     # only save EpRet / EpLen / EpCost if trajectory finished
-                    # logger.store(EpRet=ep_ret, EpLen=ep_len, EpCost=ep_cost)
                     logger.store(EpRet_train=ep_ret, EpLen_train=ep_len, EpCost_train=ep_cost, EpCost_ISSA=ep_cost_issa, EpISSA_train=ISSA_cnt,EPTime_train=time.time()-EP_start_time)
-                # o, ep_ret, ep_len = env.reset(), 0, 0
                 while True:
                     try:
                         o, ep_ret, ep_len = env.reset(), 0, 0
@@ -725,23 +681,12 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 break
             except:
                 print('reset environment is wrong, try next reset')
-        ep_cost_ret_eval, ep_cost_eval = 0, 0
-        
-        AdamBA_cnt_eval = 0     
+        ep_cost_eval = 0
         
         EP_start_time_eval=time.time()
         for t in range(local_steps_per_epoch_eval):
-            if t % 1000 == 0:
-                print("evaluate stage", t, AdamBA_cnt_eval)
-                AdamBA_cnt_eval = 0
             a, v, logp, mu, logstd = ac.step(torch.as_tensor(o, dtype=torch.float32))
-            a_safe = a        
-            # a_safe, valid_adamba_sc, _, _ = AdamBA_SC(o, a, env, vec_num=5, trigger_by_pre_execute=True, adaptive_k=adaptive_k, adaptive_n=adaptive_n, adaptive_sigma=adaptive_sigma)
-            # if a_safe is None:
-            #     a_safe = a
-            # if a_safe is not a:
-            #     AdamBA_cnt += 1
-            #     ISSA_cnt += 1
+            a_safe = a 
                     
             try: 
                 next_o, r, d, info = env.step(a_safe)
@@ -758,8 +703,6 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             ep_len_eval += 1
             ep_cost_eval += info['cost']
 
-            # save and log
-            # buf.store(o, a, r, v, logp, mu, logstd)
             logger.store(VVals=v)
             
             # Update obs (critical!)
@@ -780,9 +723,7 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 # buf.finish_path(v)
                 if terminal:
                     # only save EpRet / EpLen / EpCost if trajectory finished
-                    # logger.store(EpRet=ep_ret, EpLen=ep_len, EpCost=ep_cost)
                     logger.store(EpRet=ep_ret_eval, EpLen=ep_len_eval, EpCost=ep_cost_eval,EPTime=time.time()-EP_start_time_eval)
-                # o, ep_ret, ep_len = env.reset(), 0, 0
                 while True:
                     try:
                         o, ep_ret_eval, ep_len_eval = env.reset(), 0, 0
@@ -797,7 +738,7 @@ def trpoissa(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         if ((epoch % save_freq == 0) or (epoch == epochs-1)) and model_save:
             logger.save_state({'env': env}, None)
 
-        # Perform TRPO update!
+        # Perform ISSA update!
         update()
         
         #=====================================================================#
