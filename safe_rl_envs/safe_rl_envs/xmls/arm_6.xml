@@ -1,0 +1,139 @@
+<mujoco>
+    <size njmax="3000" nconmax="1000"/>
+    <option gravity="0 0 0" timestep="0.002"/>
+    <default>
+        <joint limited="false" damping="5000" range="-180 180" />
+        <geom condim="6" size="0.032" rgba="1 0 0 0.5" type="capsule" density="0.01"/>
+        <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="2000"/>
+        <site size="0.05" type="sphere" rgba="0 0 1 1"/>
+    </default>
+    <worldbody>
+        <geom name="floor" size="5 5 0.1" type="plane" condim="6"/>
+        <camera name="fixedfar" mode="fixed" pos="10 0 5"/>
+        <body name="robot" pos="0.0 0.0 0.0">
+            <camera name="vision" pos="0 0 .5" xyaxes="0 -1 0 .4 0 1" fovy="90"/>
+            <site name="robot" pos="0 0 0" rgba="1 0 0 0"/>
+            
+            <body name="link_1" pos="0.0 0.0 0.3">
+                <joint type="hinge" axis="0 0 1" name="joint_1"/>
+                <!-- <geom fromto="0.0 0.0 0.0 0.0 0.0 0.01" size="0.2" name="link_1"/>  -->
+                <geom pos="0.0 0.0 0.0" type="sphere" size="0.2" name="link_1"/>
+                <site name="center_link_1" pos="0 0 0"/>
+
+                <body name="link_2" pos="0.0 0.0 0.0">
+                    <joint type="hinge" axis="1 0 0" name="joint_2"/>
+                    <geom fromto="0.0 0.0 0.0 0.0 0.0 1.5" size="0.15" name="link_2"/> 
+                    <site name="center_link_2" pos="0 0 0.75" />
+
+                    <body name="link_3" pos="0.0 0.0 1.5">
+                        <joint type="hinge" axis="1 0 0" name="joint_3"/>
+                        <!-- <geom fromto="0.0 0.0 0.0 0.0 0.0 0.01" size="0.2" name="link_3"/>  -->
+                        <geom pos="0.0 0.0 0.0" type="sphere" size="0.2" name="link_3"/>
+                        <site name="center_link_3" pos="0 0 0" />
+
+                        <body name="link_4" pos="0.0 0.0 0.0">
+                            <joint type="hinge" axis="0 1 0" name="joint_4" />
+                            <geom fromto="0.0 0.0 0.0 0.0 1.0 0.0" size="0.1" name="link_4"/> 
+                            <site name="center_link_4" pos="0 0.5 0" />
+
+                            <body name="link_5" pos="0.0 1.0 0.0">
+                                <joint type="hinge" axis="1 0 0" name="joint_5"/>
+                                <!-- <geom fromto="0.0 0.0 0.0 0.0 0.0 0.01" size="0.15" name="link_5"/> -->
+                                <geom pos="0.0 0.0 0.0" type="sphere" size="0.15" name="link_5"/>
+                                <site name="center_link_5" pos="0 0 0" />
+
+                                <body name="link_6" pos="0.0 0.0 0.0">
+                                    <joint type="hinge" axis="0 1 0" name="joint_6"/>
+                                    <geom fromto="0.0 0.0 0.0 0.0 0.5 0.0" size="0.1" name="link_6"/>
+                                    <site name="center_link_6" pos="0 0.25 0" />
+
+                                    <body name="link_7" pos="0.0 0.5 0.0">
+                                        <!-- <geom fromto="0.0 0.0 0.0 0.0 0.0 0.01" size="0.1" name="link_7"/>  -->
+                                        <geom pos="0.0 0.0 0.0" type="sphere" size="0.1" name="link_7"/>
+                                        <site name="center_link_7" pos="0 0 0" />
+                                    </body>  
+                                </body> 
+                            </body>
+                        </body>
+                    </body>
+                </body>
+            </body>
+            
+            
+            
+        </body>
+    </worldbody>
+
+    <sensor>
+        <touch site="center_link_7" name="touch_end_effector"/>
+
+        <jointpos joint="joint_1" name="jointpos_joint_1"/>
+        <jointpos joint="joint_2" name="jointpos_joint_2"/>
+        <jointpos joint="joint_3" name="jointpos_joint_3"/>
+        <jointpos joint="joint_4" name="jointpos_joint_4"/>
+        <jointpos joint="joint_5" name="jointpos_joint_5"/>
+        <jointpos joint="joint_6" name="jointpos_joint_6"/>
+        
+        <jointvel joint="joint_1" name="jointvel_joint_1"/>
+        <jointvel joint="joint_2" name="jointvel_joint_2"/>
+        <jointvel joint="joint_3" name="jointvel_joint_3"/>
+        <jointvel joint="joint_4" name="jointvel_joint_4"/>
+        <jointvel joint="joint_5" name="jointvel_joint_5"/>
+        <jointvel joint="joint_6" name="jointvel_joint_6"/>
+
+        <!-- Used for observation -->
+        <!-- <accelerometer site="robot" name="accelerometer"/>
+        <velocimeter site="robot" name="velocimeter"/>
+        <gyro site="robot" name="gyro"/>
+        <magnetometer site="robot" name="magnetometer"/> -->
+
+        <accelerometer site="center_link_1" name="accelerometer_link_1"/>
+        <velocimeter site="center_link_1" name="velocimeter_link_1"/>
+        <gyro site="center_link_1" name="gyro_link_1"/>
+        <magnetometer site="center_link_1" name="magnetometer_link_1"/>
+
+        <accelerometer site="center_link_2" name="accelerometer_link_2"/>
+        <velocimeter site="center_link_2" name="velocimeter_link_2"/>
+        <gyro site="center_link_2" name="gyro_link_2"/>
+        <magnetometer site="center_link_2" name="magnetometer_link_2"/>
+
+        <accelerometer site="center_link_3" name="accelerometer_link_3"/>
+        <velocimeter site="center_link_3" name="velocimeter_link_3"/>
+        <gyro site="center_link_3" name="gyro_link_3"/>
+        <magnetometer site="center_link_3" name="magnetometer_link_3"/>
+
+        <accelerometer site="center_link_4" name="accelerometer_link_4"/>
+        <velocimeter site="center_link_4" name="velocimeter_link_4"/>
+        <gyro site="center_link_4" name="gyro_link_4"/>
+        <magnetometer site="center_link_4" name="magnetometer_link_4"/>
+
+        <accelerometer site="center_link_5" name="accelerometer_link_5"/>
+        <velocimeter site="center_link_5" name="velocimeter_link_5"/>
+        <gyro site="center_link_5" name="gyro_link_5"/>
+        <magnetometer site="center_link_5" name="magnetometer_link_5"/>
+
+        <accelerometer site="center_link_6" name="accelerometer_link_6"/>
+        <velocimeter site="center_link_6" name="velocimeter_link_6"/>
+        <gyro site="center_link_6" name="gyro_link_6"/>
+        <magnetometer site="center_link_6" name="magnetometer_link_6"/>
+
+        <accelerometer site="center_link_7" name="accelerometer_link_7"/>
+        <velocimeter site="center_link_7" name="velocimeter_link_7"/>
+        <gyro site="center_link_7" name="gyro_link_7"/>
+        <magnetometer site="center_link_7" name="magnetometer_link_7"/>
+
+        <!-- Used for intrinsic constraints -->
+        <subtreecom body="robot" name="subtreecom"/>
+        <subtreelinvel body="robot" name="subtreelinvel"/>
+        <subtreeangmom body="robot" name="subtreeangmom"/>
+
+    </sensor>
+    <actuator>
+        <motor name="joint_1" joint="joint_1"/>
+        <motor name="joint_2" joint="joint_2"/>
+        <motor name="joint_3" joint="joint_3"/>
+        <motor name="joint_4" joint="joint_4"/>
+        <motor name="joint_5" joint="joint_5"/>
+        <motor name="joint_6" joint="joint_6"/>
+    </actuator>
+</mujoco>

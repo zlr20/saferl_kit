@@ -1,0 +1,110 @@
+<mujoco model="walker3d_tiny">
+  <compiler angle="degree" coordinate="local" inertiafromgeom="true"/>
+  <size njmax="3000" nconmax="1000"/>
+  <default>
+    <joint armature="1" damping="20" limited="true"/>
+    <geom condim="6" density="500" friction=".7 .1 .1" rgba="1 0 0  1"/>
+    <site size="0.05" type="sphere" rgba="0 0 1 0"/>
+  </default>
+  <option timestep="0.005"/>
+  <worldbody>
+    <geom name="floor" size="5 5 0.1" type="plane" condim="6"/>
+    <body name="robot" pos="0 0 0.43">
+      <site name="robot" rgba="1 0 0 .1"/>
+      <camera name="vision" pos=".125 0 .2" xyaxes="0 -1 0 .4 0 1" fovy="100"/>
+      <!-- <joint armature="0" damping="0" limited="false" margin="0.01" name="root" pos="0 0 0" type="free"/> -->
+      <joint armature="0" axis="1 0 0" damping="5" limited="false" name="rootx" pos="0 0 0" stiffness="0" type="slide"/>
+      <joint armature="0" axis="0 0 1" damping="1" limited="false" name="rootz" pos="0 0 0" stiffness="0.1" type="hinge"/>
+      <joint armature="0" axis="0 1 0" damping="5" limited="false" name="rooty" pos="0 0 0" stiffness="0" type="slide"/>
+      
+      <geom friction="0.9" fromto="0 0.1 0 0 -0.1 0" name="robot_geom" size="0.03" type="capsule"/>
+      <body name="right_thigh" pos="0 0.1 0">
+        <!-- <joint axis="0 -1 0" name="thigh_joint" pos="0 0 0" range="-150 10" type="hinge"/> -->
+        <joint armature="0.01" axis="1 0 0" damping="5" name="right_hip_x" pos="0 0 0" range="-25 5" stiffness="10" type="hinge"/>
+        <joint armature="0.01" axis="0 0 1" damping="5" name="right_hip_z" pos="0 0 0" range="-30 35" stiffness="10" type="hinge"/>
+        <joint armature="0.01" axis="0 1 0" damping="5" name="right_hip_y" pos="0 0 0" range="-100 10" stiffness="10" type="hinge"/>
+        <geom friction="0.9" fromto="0 0 0 0 0 -0.2" name="right_thigh_geom" size="0.03" type="capsule"/>
+        <body name="right_leg" pos="0 0 -0.3">
+          <joint axis="0 -1 0" name="right_leg_joint" pos="0 0 0.1" range="-100 0" type="hinge"/>
+          <geom friction="0.9" fromto="0 0 0.1 0 0 -0.1" name="right_leg_geom" size="0.02" type="capsule"/>
+          <body name="right_foot" pos="0.0 0.0 0.0">
+            <joint axis="0 -1 0" name="right_foot_joint" pos="0.0 0.0 -0.1" range="-45 20" type="hinge"/>
+            <geom friction="2.0" fromto="0.0 0.0 -0.1 0.05 0.0 -0.1" name="right_foot_geom" size="0.03" type="capsule"/>
+            <site name="right_foot" pos="0.05 0 -0.1"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="left_thigh" pos="0 -0.1 0">
+        <!-- <joint axis="0 -1 0" name="thigh_left_joint" pos="0 0 0" range="-150 10" type="hinge"/> -->
+        <joint armature="0.01" axis="-1 0 0" damping="5" name="left_hip_x" pos="0 0 0" range="-25 5" stiffness="10" type="hinge"/>
+        <joint armature="0.01" axis="0 0 -1" damping="5" name="left_hip_z" pos="0 0 0" range="-30 35" stiffness="10" type="hinge"/>
+        <joint armature="0.01" axis="0 1 0" damping="5" name="left_hip_y" pos="0 0 0" range="-100 10" stiffness="10" type="hinge"/>
+        <geom friction="0.9" fromto="0 0 0 0 0 -0.2" name="left_thigh_geom" size="0.03" type="capsule"/>
+        <body name="left_leg" pos="0 0 -0.3">
+          <joint axis="0 -1 0" name="left_leg_joint" pos="0 0 0.1" range="-100 0" type="hinge"/>
+          <geom friction="0.9" fromto="0 0 0.1 0 0 -0.1" name="left_leg_geom" size="0.02" type="capsule"/>
+          <body name="left_foot" pos="0.0 0.0 0.0">
+            <joint axis="0 -1 0" name="left_foot_joint" pos="0.0 0.0 -0.1" range="-45 20" type="hinge"/>
+            <geom friction="2.0" fromto="0.0 0.0 -0.1 0.05 0.0 -0.1" name="left_foot_geom" size="0.03" type="capsule"/>
+            <site name="left_foot" pos="0.05 0 -0.1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <sensor>
+    <touch site="right_foot" name="touch_right_foot"/>
+    <touch site="left_foot" name="touch_left_foot"/>
+
+    <jointpos joint="right_hip_x" name="jointpos_right_hip_x"/>
+    <jointpos joint="right_hip_z" name="jointpos_right_hip_z"/>
+    <jointpos joint="right_hip_y" name="jointpos_right_hip_y"/>
+    <jointpos joint="right_leg_joint" name="jointpos_right_leg"/>
+    <jointpos joint="right_foot_joint" name="jointpos_right_foot"/>
+
+    <jointpos joint="left_hip_x" name="jointpos_left_hip_x"/>
+    <jointpos joint="left_hip_z" name="jointpos_left_hip_z"/>
+    <jointpos joint="left_hip_y" name="jointpos_left_hip_y"/>
+    <jointpos joint="left_leg_joint" name="jointpos_left_leg"/>
+    <jointpos joint="left_foot_joint" name="jointpos_left_foot"/>
+
+
+    <jointvel joint="right_hip_x" name="jointvel_right_hip_x"/>
+    <jointvel joint="right_hip_z" name="jointvel_right_hip_z"/>
+    <jointvel joint="right_hip_y" name="jointvel_right_hip_y"/>
+    <jointvel joint="right_leg_joint" name="jointvel_right_leg"/>
+    <jointvel joint="right_foot_joint" name="jointvel_right_foot"/>
+
+    <jointvel joint="left_hip_x" name="jointvel_left_hip_x"/>
+    <jointvel joint="left_hip_z" name="jointvel_left_hip_z"/>
+    <jointvel joint="left_hip_y" name="jointvel_left_hip_y"/>
+    <jointvel joint="left_leg_joint" name="jointvel_left_leg"/>
+    <jointvel joint="left_foot_joint" name="jointvel_left_foot"/>
+
+    <!-- Used for observation -->
+    <accelerometer site="robot" name="accelerometer"/>
+    <velocimeter site="robot" name="velocimeter"/>
+    <gyro site="robot" name="gyro"/>
+    <magnetometer site="robot" name="magnetometer"/>
+
+    <!-- Used for intrinsic constraints -->
+    <subtreecom body="robot" name="subtreecom"/>
+    <subtreelinvel body="robot" name="subtreelinvel"/>
+    <subtreeangmom body="robot" name="subtreeangmom"/>
+  </sensor>
+  <actuator>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="10" joint="right_hip_x" name="right_hip_x"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="10" joint="right_hip_z" name="right_hip_z"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="30" joint="right_hip_y" name="right_hip_y"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="30" joint="right_leg_joint"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="40" joint="right_foot_joint"/>
+
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="10" joint="left_hip_x" name="left_hip_x"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="10" joint="left_hip_z" name="left_hip_z"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="30" joint="left_hip_y" name="left_hip_y"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="30" joint="left_leg_joint"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="40" joint="left_foot_joint"/>
+    
+  </actuator>
+</mujoco>

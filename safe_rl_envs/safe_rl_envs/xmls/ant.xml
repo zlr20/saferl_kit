@@ -1,0 +1,128 @@
+<mujoco model="ant_tiny">
+  <option timestep="0.02"/>
+  <size njmax="3000" nconmax="1000"/>
+  <default>
+    <joint armature="1" damping="1" limited="true"/>
+    <geom condim="6" density="5.0" friction="0.75 0.01 0.01"  margin="0.01" rgba="1 0 0 1"/>
+    <motor  ctrllimited="true" ctrlrange="-1.0 1.0" gear="30"/>
+    <site size="0.2" type="sphere" rgba="0 0 1 0"/>
+  </default>
+  
+  <worldbody>
+    
+    <geom name="floor" size="5 5 0.1" type="plane" condim="6"/>
+
+    <body name="robot" pos="0 0 0.75">
+      <site name="robot" rgba="1 0 0 .01"/>
+      <camera name="vision" pos=".125 0 .2" xyaxes="0 -1 0 .4 0 1" fovy="100"/>
+      <geom name="robot" pos="0 0 0" size="0.06" type="sphere"/>
+      <joint armature="0" damping="0" limited="false" margin="0.01" name="root" pos="0 0 0" type="free"/>
+      <body name="front_left_leg" pos="0 0 0">
+        <geom fromto="0.0 0.0 0.0 0.05 0.05 0.0" name="aux_1_geom" size="0.02" type="capsule"/>
+        <body name="aux_1" pos="0.05 0.05 0">
+          <joint axis="0 0 1" name="hip_1" pos="0.0 0.0 0.0" range="-30 30" type="hinge"/>
+          <geom fromto="0.0 0.0 0.0 0.05 0.05 0.0" name="front_left_leg_geom" size="0.02" type="capsule"/>
+          <body pos="0.05 0.05 0">
+            <joint axis="-1 1 0" name="ankle_1" pos="0.0 0.0 0.0" range="30 70" type="hinge"/>
+            <geom fromto="0.0 0.0 0.0 0.1 0.1 0.0" name="front_left_ankle_geom" size="0.02" type="capsule"/>
+            <site name="ankle_1a" pos="0 0 0"/>
+            <site name="ankle_1b" pos="0.1 0.1 0.0"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="front_right_leg" pos="0 0 0">
+        <geom fromto="0.0 0.0 0.0 -0.05 0.05 0.0" name="aux_2_geom" size="0.02" type="capsule"/>
+        <body name="aux_2" pos="-0.05 0.05 0">
+          <joint axis="0 0 1" name="hip_2" pos="0.0 0.0 0.0" range="-30 30" type="hinge"/>
+          <geom fromto="0.0 0.0 0.0 -0.05 0.05 0.0" name="front_right_leg_geom" size="0.02" type="capsule"/>
+          <body pos="-0.05 0.05 0">
+            <joint axis="1 1 0" name="ankle_2" pos="0.0 0.0 0.0" range="-70 -30" type="hinge"/>
+            <geom fromto="0.0 0.0 0.0 -0.1 0.1 0.0" name="front_right_ankle_geom" size="0.02" type="capsule"/>
+            <site name="ankle_2a" pos="0 0 0"/>
+            <site name="ankle_2b" pos="-0.1 0.1 0.0"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="back_left_leg" pos="0 0 0">
+        <geom fromto="0.0 0.0 0.0 -0.05 -0.05 0.0" name="aux_3_geom" size="0.02" type="capsule"/>
+        <body name="aux_3" pos="-0.05 -0.05 0">
+          <joint axis="0 0 1" name="hip_3" pos="0.0 0.0 0.0" range="-30 30" type="hinge"/>
+          <geom fromto="0.0 0.0 0.0 -0.05 -0.05 0.0" name="back_left_leg_geom" size="0.02" type="capsule"/>
+          <body pos="-0.05 -0.05 0">
+            <joint axis="-1 1 0" name="ankle_3" pos="0.0 0.0 0.0" range="-70 -30" type="hinge"/>
+            <geom fromto="0.0 0.0 0.0 -0.1 -0.1 0.0" name="back_left_ankle_geom" size="0.02" type="capsule"/>
+            <site name="ankle_3a" pos="0 0 0"/>
+            <site name="ankle_3b" pos="-0.1 -0.1 0.0"/>
+          </body>
+        </body>
+      </body>
+      <body name="back_right_leg" pos="0 0 0">
+        <geom fromto="0.0 0.0 0.0 0.05 -0.05 0.0" name="aux_4_geom" size="0.02" type="capsule"/>
+        <body name="aux_4" pos="0.05 -0.05 0">
+          <joint axis="0 0 1" name="hip_4" pos="0.0 0.0 0.0" range="-30 30" type="hinge"/>
+          <geom fromto="0.0 0.0 0.0 0.05 -0.05 0.0" name="back_right_leg_geom" size="0.02" type="capsule"/>
+          <body pos="0.05 -0.05 0">
+            <joint axis="1 1 0" name="ankle_4" pos="0.0 0.0 0.0" range="30 70" type="hinge"/>
+            <geom fromto="0.0 0.0 0.0 0.1 -0.1 0.0" name="back_right_ankle_geom" size="0.02" type="capsule"/>
+            <site name="ankle_4a" pos="0 0 0"/>
+            <site name="ankle_4b" pos="0.1 -0.1 0.0"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <sensor>
+        <touch site="ankle_1a" name="touch_ankle_1a"/>      
+        <touch site="ankle_2a" name="touch_ankle_2a"/>
+        <touch site="ankle_3a" name="touch_ankle_3a"/>
+        <touch site="ankle_4a" name="touch_ankle_4a"/>
+
+        <touch site="ankle_1b" name="touch_ankle_1b"/>
+        <touch site="ankle_2b" name="touch_ankle_2b"/>  
+        <touch site="ankle_3b" name="touch_ankle_3b"/>        
+        <touch site="ankle_4b" name="touch_ankle_4b"/>
+
+        <jointpos joint="hip_1" name="jointpos_hip_1"/>
+        <jointpos joint="hip_2" name="jointpos_hip_2"/>
+        <jointpos joint="hip_3" name="jointpos_hip_3"/>
+        <jointpos joint="hip_4" name="jointpos_hip_4"/>
+
+        <jointpos joint="ankle_1" name="jointpos_ankle_1"/>
+        <jointpos joint="ankle_2" name="jointpos_ankle_2"/>
+        <jointpos joint="ankle_3" name="jointpos_ankle_3"/>
+        <jointpos joint="ankle_4" name="jointpos_ankle_4"/>
+
+        <jointvel joint="hip_1" name="jointvel_hip_1"/>
+        <jointvel joint="hip_2" name="jointvel_hip_2"/>
+        <jointvel joint="hip_3" name="jointvel_hip_3"/>
+        <jointvel joint="hip_4" name="jointvel_hip_4"/>
+
+        <jointvel joint="ankle_1" name="jointvel_ankle_1"/>
+        <jointvel joint="ankle_2" name="jointvel_ankle_2"/>
+        <jointvel joint="ankle_3" name="jointvel_ankle_3"/>
+        <jointvel joint="ankle_4" name="jointvel_ankle_4"/>
+
+        <!-- Used for observation -->
+        <accelerometer site="robot" name="accelerometer"/>
+        <velocimeter site="robot" name="velocimeter"/>
+        <gyro site="robot" name="gyro"/>
+        <magnetometer site="robot" name="magnetometer"/>
+
+        <!-- Used for intrinsic constraints -->
+        <subtreecom body="robot" name="subtreecom"/>
+        <subtreelinvel body="robot" name="subtreelinvel"/>
+        <subtreeangmom body="robot" name="subtreeangmom"/>
+  </sensor>
+  <actuator>
+    <motor name="hip_1" joint="hip_1"/>
+    <motor name="ankle_1" joint="ankle_1"/>
+    <motor name="hip_2"  joint="hip_2" />
+    <motor name="ankle_2" joint="ankle_2"/>
+    <motor name="hip_3" joint="hip_3"/>
+    <motor name="ankle_3" joint="ankle_3"/>
+    <motor name="hip_4" joint="hip_4"/>
+    <motor name="ankle_4" joint="ankle_4"/>
+  </actuator>
+</mujoco>

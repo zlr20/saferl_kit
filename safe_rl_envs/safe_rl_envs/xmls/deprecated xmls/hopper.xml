@@ -1,0 +1,52 @@
+<mujoco model="hopper">
+  <compiler angle="degree" coordinate="local" inertiafromgeom="true"/>
+  <default>
+    <joint armature="1" damping="1" limited="true"/>
+    <geom conaffinity="1" condim="6" contype="1" margin="0.001" rgba="1 0 0 1" solimp=".8 .8 .01" solref=".02 1"/>
+    <motor ctrllimited="true" ctrlrange="-.4 .4"/>
+  </default>
+  <option timestep="0.002"/>
+
+  <worldbody>
+    <geom name="floor" size="5 5 0.1" type="plane" condim="6"/>
+    <body name="robot" pos="0 0 1.25">
+      <site name="robot" rgba="1 0 0 .1"/>
+      <camera name="vision" pos=".125 0 .2" xyaxes="0 -1 0 .4 0 1" fovy="100"/>
+      <joint armature="0" damping="0" limited="false" margin="0.01" name="root" pos="0 0 0" type="free"/>
+      <!-- <joint armature="0" axis="1 0 0" damping="0" limited="false" name="rootx" pos="0 0 0" stiffness="0" type="slide"/>
+      <joint armature="0" axis="0 0 1" damping="0" limited="false" name="rootz" pos="0 0 0" stiffness="0" type="slide"/>
+      <joint armature="0" axis="0 1 0" damping="0" limited="false" name="rooty" pos="0 0 0" stiffness="0" type="slide"/> -->
+      <geom friction="0.9" fromto="0 0 0.2 0 0 -0.2" name="robot_geom" size="0.05" type="capsule" />
+      <body name="thigh" pos="0 0 -0.2">
+        <joint axis="0 -1 0" name="thigh_joint" pos="0 0 0" range="-150 0" type="hinge"/>
+        <geom friction="0.9" fromto="0 0 0 0 0 -0.45" name="thigh_geom" size="0.05" type="capsule"/>
+        <body name="leg" pos="0 0 -0.7">
+          <joint axis="0 -1 0" name="leg_joint" pos="0 0 0.25" range="-150 0" type="hinge"/>
+          <geom friction="0.9" fromto="0 0 0.25 0 0 -0.25" name="leg_geom" size="0.04" type="capsule"/>
+          <body name="foot" pos="0.13 0 -0.35">
+            <joint axis="0 -1 0" name="foot_joint" pos="-0.13 0 0.1" range="-45 45" type="hinge"/>
+            <geom friction="2.0" fromto="-0.26 0 0.1 0.13 0 0.1" name="foot_geom" size="0.06" type="capsule"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <sensor>
+
+        <!-- Used for observation -->
+        <accelerometer site="robot" name="accelerometer"/>
+        <velocimeter site="robot" name="velocimeter"/>
+        <gyro site="robot" name="gyro"/>
+        <magnetometer site="robot" name="magnetometer"/>
+
+        <!-- Used for intrinsic constraints -->
+        <subtreecom body="robot" name="subtreecom"/>
+        <subtreelinvel body="robot" name="subtreelinvel"/>
+        <subtreeangmom body="robot" name="subtreeangmom"/>
+   </sensor>
+   <actuator>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="200.0" joint="thigh_joint"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="200.0" joint="leg_joint"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0" gear="200.0" joint="foot_joint"/>
+   </actuator>
+</mujoco>

@@ -1,0 +1,72 @@
+<mujoco>
+    <size njmax="3000" nconmax="1000"/>
+    <option timestep="0.008"/>
+    <default>
+        <geom condim="6" density="1" rgba="1 0 0 1" />
+        <joint damping=".001"/>
+        <motor ctrlrange="-1 1" ctrllimited="true" forcerange="-.05 .05" forcelimited="true"/>
+        <velocity ctrlrange="-1 1" ctrllimited="true" forcerange="-.05 .05" forcelimited="true"/>
+        <site size="0.02" type="sphere"/>
+    </default>
+    <worldbody>
+        <geom name="floor" size="5 5 0.1" type="plane" condim="6"/>
+        <body name="robot" pos="0 0 1.0">
+            <camera name="vision" pos="0 0 .15" xyaxes="0 -1 0 .4 0 1" fovy="90"/>
+            <joint armature="0" axis="1 0 0" damping="0.5" limited="false" name="slidex" pos="0 0 0" stiffness="0" type="slide"/>
+            <joint armature="0" axis="0 1 0" damping="0.5" limited="false" name="slidey" pos="0 0 0" stiffness="0" type="slide"/>
+            <joint armature="0" axis="0 0 1" damping="0.2" limited="false" name="slidez" pos="0 0 0" stiffness="0" type="slide"/>
+            <joint armature="0" axis="1 0 0" damping="0.2" limited="false" name="hingex" pos="0 0 0" stiffness="0" type="hinge"/>
+            <joint armature="0" axis="0 1 0" damping="0.2" limited="false" name="hingey" pos="0 0 0" stiffness="0" type="hinge"/>
+            <joint armature="0" axis="0 0 1" damping="0.2" limited="false" name="hingez" pos="0 0 0" stiffness="0" type="hinge"/>
+            <geom name="robot" pos="0 0 0" size="0.1" type="sphere"/>
+            <geom fromto="0.3 0.0 0.0 -0.3 0.0 0.0" name="body1" size="0.03" type="capsule"/>
+            <geom fromto="0.0 0.3 0.0 0.0 -0.3 0.0" name="body2" size="0.03" type="capsule"/>    
+            <site name="robot" rgba="0 1 0 .1"/>
+            <body name="p1" pos="0.3 0.0 0.0">
+                <geom fromto="0.0 0.0 -0.1 0.0 0.0 0.1" name="p1_body" size="0.03" type="capsule"/>
+                <site name="p1" rgba="1 0 1 .1"/>
+                <site name="p1a" pos="0.0 0.0 0.1" rgba="1 0 1 .5"/>
+                <site name="p1b" pos="0.0 0.0 -0.1" rgba="1 1 0 .5"/>
+            </body>
+            <body name="p2" pos="0.0 0.3  0.0">
+                <geom fromto="0.0 0.0 -0.1 0.0 0.0 0.1" name="p2_body" size="0.03" type="capsule"/>
+                <site name="p2" rgba="0 1 0 .1"/>
+                <site name="p2a" pos="0.0 0.0 0.1" rgba="1 0 1 .5"/>
+                <site name="p2b" pos="0.0 0.0 -0.1" rgba="1 1 0 .5"/>
+            </body>
+            <body name="p3" pos="-0.3 0.0 0.0">
+                <geom fromto="0.0 0.0 -0.1 0.0 0.0 0.1" name="p3_body" size="0.03" type="capsule"/>
+                <site name="p3" rgba="0 0 1 .1"/>
+                <site name="p3a" pos="0.0 0.0 0.1" rgba="1 0 1 .5"/>
+                <site name="p3b" pos="0.0 0.0 -0.1" rgba="1 1 0 .5"/>
+            </body>
+            <body name="p4" pos="0.0 -0.3 0.0">
+                <geom fromto="0.0 0.0 -0.1 0.0 0.0 0.1" name="p4_body" size="0.03" type="capsule"/>
+                <site name="p4" rgba="0 1 1 .1"/>
+                <site name="p4a" pos="0.0 0.0 0.1" rgba="1 0 1 .5"/>
+                <site name="p4b" pos="0.0 0.0 -0.1" rgba="1 1 0 .5"/>
+            </body>
+        </body>
+    </worldbody>
+    <sensor>
+        <touch site="p1a" name="touch_p1a"/>
+        <touch site="p1b" name="touch_p1b"/>
+        <touch site="p2a" name="touch_p2a"/>
+        <touch site="p2b" name="touch_p2b"/>
+        <touch site="p3a" name="touch_p3a"/>
+        <touch site="p3b" name="touch_p3b"/>
+        <touch site="p4a" name="touch_p4a"/>
+        <touch site="p4b" name="touch_p4b"/>
+
+        <!-- Used for observation -->
+        <accelerometer site="robot" name="accelerometer"/>
+        <velocimeter site="robot" name="velocimeter"/>
+        <gyro site="robot" name="gyro"/>
+        <magnetometer site="robot" name="magnetometer"/>
+
+        <!-- Used for intrinsic constraints -->
+        <subtreecom body="robot" name="subtreecom"/>
+        <subtreelinvel body="robot" name="subtreelinvel"/>
+        <subtreeangmom body="robot" name="subtreeangmom"/>
+    </sensor>
+</mujoco>

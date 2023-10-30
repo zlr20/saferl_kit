@@ -1,0 +1,60 @@
+<mujoco model="swimmer">
+  <compiler angle="degree" coordinate="local" inertiafromgeom="true"/>
+  <option density="4000" integrator="RK4" timestep="0.01" viscosity="0.1"/>
+  <default>
+    <geom  condim="6" density="1000" rgba="1 0 0 1"/>
+    <joint armature='0.1'  />
+    <site size="0.1" type="sphere" rgba="0 0 1 0"/>
+  </default>
+  <worldbody>
+    <geom name="floor" size="5 5 0.1" type="plane" condim="6"/>
+
+    <body name="robot" pos="0 0 0.1">
+      <site name="robot"/>
+      <site name="point1" pos="0.6 0 0"/>
+      <site name="point2" pos="0.3 0 0"/>
+      <camera name="vision" pos=".125 0 .2" xyaxes="0 -1 0 .4 0 1" fovy="100"/>
+      <geom name="link_1" fromto="0.6 0 0 0.3 0 0" size="0.03" type="capsule"/>
+      <joint axis="1 0 0" name="slider1" pos="0 0 0" type="slide"/>
+      <joint axis="0 1 0" name="slider2" pos="0 0 0" type="slide"/>
+      <joint axis="0 0 1" name="free_body_rot" pos="0 0 0" type="hinge"/>
+      <body name="mid" pos="0.3 0 0">
+        <site name="point3" pos="-0.3 0 0"/>
+        <geom  name="link_2" fromto="0 0 0 -0.3 0 0" size="0.03" type="capsule"/>
+        <joint axis="0 0 1" limited="true" name="motor1_rot" pos="0 0 0" range="-100 100" type="hinge"/>
+        <body name="back" pos="-0.3 0 0">
+          <site name="point4" pos="-0.3 0 0"/>
+          <geom  name="link_3" fromto="0 0 0 -0.3 0 0" size="0.03" type="capsule"/>
+          <joint axis="0 0 1" limited="true" name="motor2_rot" pos="0 0 0" range="-100 100" type="hinge"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <sensor>
+        <touch site="point1" name="touch_point1"/>
+        <touch site="point2" name="touch_point2"/>
+        <touch site="point3" name="touch_point3"/>
+        <touch site="point4" name="touch_point4"/>
+
+        <jointpos joint="motor1_rot" name="jointpos_motor1_rot"/>
+        <jointpos joint="motor2_rot" name="jointpos_motor2_rot"/>
+
+        <jointvel joint="motor1_rot" name="jointvel_motor1_rot"/>
+        <jointvel joint="motor2_rot" name="jointvel_motor2_rot"/>
+
+        <!-- Used for observation -->
+        <accelerometer site="robot" name="accelerometer"/>
+        <velocimeter site="robot" name="velocimeter"/>
+        <gyro site="robot" name="gyro"/>
+        <magnetometer site="robot" name="magnetometer"/>
+
+        <!-- Used for intrinsic constraints -->
+        <subtreecom body="robot" name="subtreecom"/>
+        <subtreelinvel body="robot" name="subtreelinvel"/>
+        <subtreeangmom body="robot" name="subtreeangmom"/>
+  </sensor>
+  <actuator>
+    <motor ctrllimited="true" ctrlrange="-1 1" gear="10.0" joint="motor1_rot"/>
+    <motor ctrllimited="true" ctrlrange="-1 1" gear="10.0" joint="motor2_rot"/>
+  </actuator>
+</mujoco>
